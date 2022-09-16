@@ -1,0 +1,1167 @@
+
+File: target/riscv64gc-unknown-none-elf/debug/yife-os
+Format: elf64-littleriscv
+Arch: riscv64
+AddressSize: 64bit
+LoadName: <Not found>
+ElfHeader {
+  Ident {
+    Magic: (7F 45 4C 46)
+    Class: 64-bit (0x2)
+    DataEncoding: LittleEndian (0x1)
+    FileVersion: 1
+    OS/ABI: SystemV (0x0)
+    ABIVersion: 0
+    Unused: (00 00 00 00 00 00 00)
+  }
+  Type: Executable (0x2)
+  Machine: EM_RISCV (0xF3)
+  Version: 1
+  Entry: 0x0
+  ProgramHeaderOffset: 0x40
+  SectionHeaderOffset: 0x1B58
+  Flags [ (0x5)
+    EF_RISCV_FLOAT_ABI_DOUBLE (0x4)
+    EF_RISCV_RVC (0x1)
+  ]
+  HeaderSize: 64
+  ProgramHeaderEntrySize: 56
+  ProgramHeaderCount: 3
+  SectionHeaderEntrySize: 64
+  SectionHeaderCount: 14
+  StringTableSectionIndex: 12
+}
+Sections [
+  Section {
+    Index: 0
+    Name:  (0)
+    Type: SHT_NULL (0x0)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0x0
+    Size: 0
+    Link: 0
+    Info: 0
+    AddressAlignment: 0
+    EntrySize: 0
+  }
+  Section {
+    Index: 1
+    Name: .debug_abbrev (1)
+    Type: SHT_PROGBITS (0x1)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0xE8
+    Size: 246
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 0
+  }
+  Section {
+    Index: 2
+    Name: .debug_info (15)
+    Type: SHT_PROGBITS (0x1)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0x1DE
+    Size: 1471
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 0
+  }
+  Section {
+    Index: 3
+    Name: .debug_aranges (27)
+    Type: SHT_PROGBITS (0x1)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0x79D
+    Size: 48
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 0
+  }
+  Section {
+    Index: 4
+    Name: .debug_str (42)
+    Type: SHT_PROGBITS (0x1)
+    Flags [ (0x30)
+      SHF_MERGE (0x10)
+      SHF_STRINGS (0x20)
+    ]
+    Address: 0x0
+    Offset: 0x7CD
+    Size: 1185
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 1
+  }
+  Section {
+    Index: 5
+    Name: .debug_pubnames (53)
+    Type: SHT_PROGBITS (0x1)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0xC6E
+    Size: 193
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 0
+  }
+  Section {
+    Index: 6
+    Name: .debug_pubtypes (69)
+    Type: SHT_PROGBITS (0x1)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0xD2F
+    Size: 876
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 0
+  }
+  Section {
+    Index: 7
+    Name: .riscv.attributes (85)
+    Type: SHT_RISCV_ATTRIBUTES (0x70000003)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0x109B
+    Size: 53
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 0
+  }
+  Section {
+    Index: 8
+    Name: .debug_frame (103)
+    Type: SHT_PROGBITS (0x1)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0x10D0
+    Size: 56
+    Link: 0
+    Info: 0
+    AddressAlignment: 8
+    EntrySize: 0
+  }
+  Section {
+    Index: 9
+    Name: .debug_line (116)
+    Type: SHT_PROGBITS (0x1)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0x1108
+    Size: 78
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 0
+  }
+  Section {
+    Index: 10
+    Name: .comment (128)
+    Type: SHT_PROGBITS (0x1)
+    Flags [ (0x30)
+      SHF_MERGE (0x10)
+      SHF_STRINGS (0x20)
+    ]
+    Address: 0x0
+    Offset: 0x1156
+    Size: 19
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 1
+  }
+  Section {
+    Index: 11
+    Name: .symtab (137)
+    Type: SHT_SYMTAB (0x2)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0x1170
+    Size: 2328
+    Link: 13
+    Info: 97
+    AddressAlignment: 8
+    EntrySize: 24
+  }
+  Section {
+    Index: 12
+    Name: .shstrtab (145)
+    Type: SHT_STRTAB (0x3)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0x1A88
+    Size: 163
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 0
+  }
+  Section {
+    Index: 13
+    Name: .strtab (155)
+    Type: SHT_STRTAB (0x3)
+    Flags [ (0x0)
+    ]
+    Address: 0x0
+    Offset: 0x1B2B
+    Size: 38
+    Link: 0
+    Info: 0
+    AddressAlignment: 1
+    EntrySize: 0
+  }
+]
+ProgramHeaders [
+  ProgramHeader {
+    Type: PT_PHDR (0x6)
+    Offset: 0x40
+    VirtualAddress: 0x10040
+    PhysicalAddress: 0x10040
+    FileSize: 168
+    MemSize: 168
+    Flags [ (0x4)
+      PF_R (0x4)
+    ]
+    Alignment: 8
+  }
+  ProgramHeader {
+    Type: PT_LOAD (0x1)
+    Offset: 0x0
+    VirtualAddress: 0x10000
+    PhysicalAddress: 0x10000
+    FileSize: 232
+    MemSize: 232
+    Flags [ (0x4)
+      PF_R (0x4)
+    ]
+    Alignment: 4096
+  }
+  ProgramHeader {
+    Type: PT_GNU_STACK (0x6474E551)
+    Offset: 0x0
+    VirtualAddress: 0x0
+    PhysicalAddress: 0x0
+    FileSize: 0
+    MemSize: 0
+    Flags [ (0x6)
+      PF_R (0x4)
+      PF_W (0x2)
+    ]
+    Alignment: 0
+  }
+]
+Relocations [
+]
+Symbols [
+  Symbol {
+    Name:  (0)
+    Value: 0x0
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: Undefined (0x0)
+  }
+  Symbol {
+    Name: 22xdcg7djqefu9z7 (1)
+    Value: 0x0
+    Size: 0
+    Binding: Local (0x0)
+    Type: File (0x4)
+    Other: 0
+    Section: Absolute (0xFFF1)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x0
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_info (0x2)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x272
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0xAC
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name: .Lline_table_start0 (18)
+    Value: 0x0
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_line (0x9)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x33F
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x159
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x248
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x13A
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x47E
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x125
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x120
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x35C
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x1D1
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x481
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x336
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x117
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x1E0
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x20F
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x5E
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x369
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x2DE
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x2E7
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0xD1
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x330
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x164
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x2F9
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x1A8
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x40A
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x23E
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x149
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x239
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x103
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x412
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0xDC
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x2B3
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x418
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x15E
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x497
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0xA0
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x209
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x12F
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x8A
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x1D8
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x1A0
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x150
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x2D3
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x230
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x1E7
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x439
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x10E
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x99
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x16E
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x43E
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0xD7
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x13D
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x63
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x46B
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x13F
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0xE6
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x167
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x16A
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x24C
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x146
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x489
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x1FE
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x1EC
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0xCB
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x24E
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x0
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0xA4
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x362
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x2FF
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x3FE
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x491
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x18C
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x3FA
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x21A
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x2F1
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x443
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x329
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x112
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x36F
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x94
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x40E
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x45
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x44C
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x38E
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x2E4
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x2B
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x41F
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x2BE
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x1B0
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x479
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_str (0x4)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x0
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_frame (0x8)
+  }
+  Symbol {
+    Name:  (0)
+    Value: 0x18
+    Size: 0
+    Binding: Local (0x0)
+    Type: None (0x0)
+    Other: 0
+    Section: .debug_frame (0x8)
+  }
+]
+VersionSymbols [
+]
+VersionDefinitions [
+]
+VersionRequirements [
+]
+Groups {
+  There are no group sections in the file.
+}
+Hash Histogram not implemented!
+Addrsig [
+]
+Notes [
+]
+StackSizes [
+]
