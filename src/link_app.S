@@ -12,15 +12,21 @@
 .global app_3_end
 .global app_4_start
 .global app_4_end
+.global app_5_start
+.global app_5_end
+.global app_6_start
+.global app_6_end
 
 _num_app:
-    .quad 5
+    .quad 7
     .quad app_0_start
     .quad app_1_start
     .quad app_2_start
     .quad app_3_start
     .quad app_4_start
-    .quad app_4_end
+    .quad app_5_start
+    .quad app_6_start
+    .quad app_6_end
 
 app_0_start:
     .incbin "../user/target/riscv64gc-unknown-none-elf/release/00hello_world.bin"
@@ -41,3 +47,11 @@ app_3_end:
 app_4_start:
     .incbin "../user/target/riscv64gc-unknown-none-elf/release/04priv_csr.bin"
 app_4_end:
+
+app_5_start:
+    .incbin "../user/target/riscv64gc-unknown-none-elf/release/05yield_a.bin"
+app_5_end:
+
+app_6_start:
+    .incbin "../user/target/riscv64gc-unknown-none-elf/release/06yield_b.bin"
+app_6_end:

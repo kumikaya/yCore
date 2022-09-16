@@ -1,8 +1,8 @@
-const USER_STACK_SIZE: usize = 4 * 4096;
-const KERNEL_STACK_SIZE: usize = 4 * 4096;
-const MAX_APP_NUM: usize = 16;
+const USER_STACK_SIZE: usize = 2 * 4096;
+const KERNEL_STACK_SIZE: usize = 2 * 4096;
+const MAX_APP_NUM: usize = 8;
 const APP_BASE_ADDRESS: usize = 0x80400000;
-const APP_SIZE_LIMIT: usize = 0x200000;
+const APP_SIZE_LIMIT: usize = 0x20000;
 
 struct AppManager {
     nums: usize,
@@ -87,7 +87,7 @@ pub fn run_next_app() -> ! {
         ));
     }
 
-    panic!("Unreachable")
+    unreachable!()
 }
 
 pub fn init() {

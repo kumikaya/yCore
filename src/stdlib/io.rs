@@ -16,5 +16,4 @@ pub fn print(args: fmt::Arguments) {
     Stdout.write_fmt(args).unwrap();
 }
 
-struct Stdin;
 

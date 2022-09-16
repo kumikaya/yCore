@@ -17,7 +17,7 @@ pub fn init() {
         Some("trace") => LevelFilter::Trace,
         _ => LevelFilter::Off,
     };
-    println!("Log level: {}", log_level);
+    println!("[Kernel] Log level: {}", log_level);
 
     log::set_logger(&LOGGER).unwrap();
     log::set_max_level(log_level);

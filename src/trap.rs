@@ -1,12 +1,13 @@
-use core::arch::{global_asm, asm};
+use core::arch::global_asm;
 
 use riscv::register::{
     scause::{self, Exception, Trap},
     sstatus::{self, Sstatus, SPP},
-    stval, stvec, utvec::TrapMode,
+    stval, stvec,
+    utvec::TrapMode,
 };
 
-use crate::{syscall::syscall, println, batch::run_next_app};
+use crate::{println, syscall::syscall, task::to_next_app};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -46,12 +47,14 @@ pub fn trap_handler(cx: &mut TrapContext) -> &mut TrapContext {
         }
         Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
             println!("[kernel] PageFault in application, kernel killed it.");
-            run_next_app();
-        },
+            to_next_app()
+            // run_next_app();
+        }
         Trap::Exception(Exception::IllegalInstruction) => {
             println!("[kernel] IllegalInstruction in application, kernel killed it.");
-            run_next_app();
-        },
+            to_next_app()
+            // run_next_app();
+        }
         _ => panic!(
             "Unsupported trap {:?}, stval = {:#x}!",
             status.cause(),
@@ -61,12 +64,11 @@ pub fn trap_handler(cx: &mut TrapContext) -> &mut TrapContext {
     cx
 }
 
+extern "C" {
+    pub fn __trap_entry();
+    pub fn __restore(cx: usize);
+}
 
 pub fn init() {
-    extern "C" {
-        fn __trap_entry();
-    }
-    unsafe {
-        stvec::write(__trap_entry as usize, TrapMode::Direct)
-    }
+    unsafe { stvec::write(__trap_entry as usize, TrapMode::Direct) }
 }

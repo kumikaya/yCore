@@ -24,17 +24,18 @@ fn trivial_assertion() {
 mod lang_items;
 mod init;
 mod sbi;
-mod test;
+// mod test;
 mod debug;
 mod stdlib;
 mod syscall;
 mod trap;
-mod batch;
+mod timer;
+mod config;
+mod task;
 
 use core::arch::global_asm;
 
-
-use crate::stdlib::logging;
+use crate::{stdlib::logging, task::to_next_app};
 
 
 global_asm!(include_str!("entry.S"));
@@ -42,15 +43,18 @@ global_asm!(include_str!("link_app.S"));
 
 #[no_mangle]
 pub fn rust_main() -> ! {
+    init::clear_bss();
     logging::init();
 
     #[cfg(test)]
     test_main();
     
-    init::clear_bss();
+    
     trap::init();
-    batch::init();
-    batch::run_next_app();
-    // panic!("Should not reach here.");
+    task::allocater::init();
+    task::init();
+    // batch::init();
+    // batch::run_next_app();
+    to_next_app();
 }
 
