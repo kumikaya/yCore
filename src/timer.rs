@@ -2,7 +2,7 @@ use riscv::register::time;
 
 use crate::{config::CLOCK_FREQ, sbi::set_timer};
 
-const TICK_FREQ: usize = 100;
+const TICK_FREQ: usize = 500;
 
 pub fn get_time() -> usize {
     time::read()

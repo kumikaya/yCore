@@ -4,7 +4,7 @@ pub mod manager;
 pub mod stack;
 pub mod task;
 
-use alloc::{boxed::Box, collections::VecDeque};
+use alloc::{boxed::Box, collections::{VecDeque, BinaryHeap}};
 
 use task::*;
 
@@ -18,7 +18,8 @@ use lazy_static::lazy_static;
 lazy_static! {
     static ref TASK_MANAGER: STCell<TaskManager> = {
         STCell::new(TaskManager {
-            queue: VecDeque::new(),
+            current: None,
+            priority_queue: BinaryHeap::new(),
         })
     };
 }
@@ -39,7 +40,7 @@ pub fn init() {
         let len = app_starts[i + 1] - start;
         let entry = APP_BASE_ADDRESS + i * APP_SIZE_LIMIT;
         loader::copy_mem(start, entry, len);
-        task_manager.push(Box::new(Task::new(entry, i + 1)));
+        task_manager.push(Box::new(Task::new(entry, i + 1, i as i8)));
     }
 }
 
@@ -58,7 +59,7 @@ pub fn exit_and_run_next() -> ! {
 }
 
 pub fn run_first_app() -> ! {
-    let task = get_current(); // .expect("No task!");
+    let task = fetch_next_set_current(TaskStatus::Ready); // .expect("No task!");
     unsafe {
         (*task).state = TaskStatus::Running;
     }
@@ -67,6 +68,8 @@ pub fn run_first_app() -> ! {
         uid: 0,
         state: TaskStatus::Exited,
         sp: &HOLE_STACK as *const _ as usize,
+        raw_priority: 0,
+        priority: 0,
     };
     switch(&hole_task as *const _ as *mut Task, task);
     unreachable!()

@@ -20,11 +20,32 @@ pub enum TaskSp {
     None,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct Task {
+    pub raw_priority: i8,
+    pub priority: i8,
     pub uid: usize,
     pub state: TaskStatus,
     pub sp: usize, // pub cx: *mut TaskContex,
+}
+
+impl PartialEq for Task {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority
+    }
+}
+
+
+impl PartialOrd for Task {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.priority.partial_cmp(&other.priority)
+    }
+}
+
+impl Ord for Task {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.priority.cmp(&other.priority)
+    }
 }
 
 impl Drop for Task {
@@ -34,7 +55,7 @@ impl Drop for Task {
 }
 
 impl Task {
-    pub fn new(entry: usize, uid: usize) -> Self {
+    pub fn new(entry: usize, uid: usize, priority: i8) -> Self {
         let (usp, mut ksp) = allocate_stack();
         ksp = push_context(ksp, TrapContext::init(entry, usp));
         let task_cx = (ksp - align_size::<TaskContex>(16)) as *mut TaskContex;
@@ -43,7 +64,15 @@ impl Task {
             uid,
             state: TaskStatus::Ready,
             sp: task_cx as usize,
+            raw_priority: priority,
+            priority: priority,
         }
+    }
+    pub fn reset_priority(&mut self) {
+        self.priority = self.raw_priority;
+    }
+    pub fn down(&mut self) {
+        self.priority += 1;
     }
 }
 
@@ -53,6 +82,8 @@ impl Default for Task {
             uid: 0,
             state: TaskStatus::Exited,
             sp: 0,
+            raw_priority: 0,
+            priority: 0,
         }
     }
 }
