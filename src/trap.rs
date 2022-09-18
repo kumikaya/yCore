@@ -1,13 +1,19 @@
 use core::arch::global_asm;
 
 use riscv::register::{
-    scause::{self, Exception, Trap},
+    mtvec::TrapMode,
+    scause::{self, Exception, Interrupt, Trap},
+    sie,
     sstatus::{self, Sstatus, SPP},
     stval, stvec,
-    utvec::TrapMode,
 };
 
-use crate::{println, syscall::syscall, task::to_next_app};
+use crate::{
+    println,
+    syscall::syscall,
+    task::{exit_and_run_next, to_yield},
+    timer::set_next_trigger,
+};
 
 #[derive(Debug)]
 #[repr(C)]
@@ -45,14 +51,18 @@ pub fn trap_handler(cx: &mut TrapContext) -> &mut TrapContext {
             cx.sepc += 4;
             cx.regs[10] = syscall(cx.regs[17], cx.regs[10], cx.regs[11], cx.regs[12]) as usize;
         }
+        Trap::Interrupt(Interrupt::SupervisorTimer) => {
+            set_next_trigger();
+            to_yield();
+        }
         Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
             println!("[kernel] PageFault in application, kernel killed it.");
-            to_next_app()
+            exit_and_run_next()
             // run_next_app();
         }
         Trap::Exception(Exception::IllegalInstruction) => {
             println!("[kernel] IllegalInstruction in application, kernel killed it.");
-            to_next_app()
+            exit_and_run_next()
             // run_next_app();
         }
         _ => panic!(
@@ -66,9 +76,14 @@ pub fn trap_handler(cx: &mut TrapContext) -> &mut TrapContext {
 
 extern "C" {
     pub fn __trap_entry();
-    pub fn __restore(cx: usize);
+    pub fn __restore();
 }
 
 pub fn init() {
     unsafe { stvec::write(__trap_entry as usize, TrapMode::Direct) }
+}
+
+pub fn enable_timer_interrupt() {
+    unsafe { sie::set_stimer() };
+    set_next_trigger();
 }

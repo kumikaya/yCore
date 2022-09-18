@@ -5,7 +5,7 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
-
+#![feature(alloc_error_handler)]
 #[cfg(test)]
 fn test_runner(tests: &[&dyn Fn()]) {
     println!("Running {} tests", tests.len());
@@ -21,22 +21,24 @@ fn trivial_assertion() {
     println!("[ok]");
 }
 
-mod lang_items;
 mod init;
+mod lang_items;
 mod sbi;
 // mod test;
+mod config;
 mod debug;
+mod mem;
 mod stdlib;
 mod syscall;
-mod trap;
-mod timer;
-mod config;
 mod task;
+mod timer;
+mod trap;
 
 use core::arch::global_asm;
 
-use crate::{stdlib::logging, task::to_next_app};
+use crate::stdlib::logging;
 
+extern crate alloc;
 
 global_asm!(include_str!("entry.S"));
 global_asm!(include_str!("link_app.S"));
@@ -45,16 +47,16 @@ global_asm!(include_str!("link_app.S"));
 pub fn rust_main() -> ! {
     init::clear_bss();
     logging::init();
-
+    mem::heap_alloc::init_heap();
+    mem::heap_alloc::heap_test();
     #[cfg(test)]
     test_main();
-    
-    
+
     trap::init();
     task::allocater::init();
     task::init();
+    trap::enable_timer_interrupt();
     // batch::init();
     // batch::run_next_app();
-    to_next_app();
+    task::run_first_app()
 }
-

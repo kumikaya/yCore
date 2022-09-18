@@ -1,7 +1,7 @@
 mod fs;
 mod process;
 mod sys;
-mod switch;
+pub mod switch;
 use self::{fs::*, process::*, sys::*};
 
 pub use process::sys_yield;

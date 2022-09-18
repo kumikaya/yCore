@@ -37,3 +37,4 @@ pub fn copy_mem(src: usize, dst: usize, len: usize) {
     assert!(src + len <= dst || dst <= src - len);
     unsafe { copy_mem_uncheck(src, dst, len) };
 }
+
