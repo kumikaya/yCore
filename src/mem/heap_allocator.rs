@@ -1,4 +1,3 @@
-use core::alloc::{GlobalAlloc, Layout};
 use buddy_system_allocator::LockedHeap;
 use crate::{config::KERNEL_HEAP_SIZE, println};
 
@@ -21,7 +20,7 @@ pub fn handle_alloc_error(layout: core::alloc::Layout) -> ! {
 }
 
 
-#[allow(unused)]
+#[cfg(feature = "debug_test")]
 pub fn heap_test() {
     use alloc::boxed::Box;
     use alloc::vec::Vec;
@@ -43,5 +42,5 @@ pub fn heap_test() {
     }
     assert!(bss_range.contains(&(v.as_ptr() as usize)));
     drop(v);
-    println!("heap_test passed!");
+    println!("[passed] heap_test");
 }

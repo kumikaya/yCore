@@ -7,14 +7,6 @@
     ld x\n, \n*8(sp)
 .endm
 
-.macro LOAD_A_REG n
-    ld a\n, \n*8(sp)
-.endm
-
-.macro LOAD_T_REG n
-    ld t\n, \n*8(sp)
-.endm
-
 .section .text
 .global __trap_entry
 .global __restore
@@ -23,7 +15,7 @@
 /* Context layout
 low address
 --------
-|    none(top)
+|    none
 |    ra
 |    sp
 |    gp
@@ -37,7 +29,7 @@ low address
 __trap_entry:
     csrrw sp, sscratch, sp
     
-    addi sp, sp, -34*8
+    # addi sp, sp, -34*8
     sd ra, 1*8(sp)
     sd gp, 3*8(sp)
     # save x5~x31
@@ -70,6 +62,6 @@ __restore:
         LOAD_GP %n
         .set n, n+1
     .endr
-    addi sp, sp, 34*8
+    # addi sp, sp, 34*8
     csrrw sp, sscratch, sp
     sret

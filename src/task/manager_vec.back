@@ -1,0 +1,99 @@
+use core::mem::swap;
+
+use crate::{print, println, stdlib::cell::STCell, syscall::switch::__switch};
+
+use super::task::{Task, TaskContex, TaskStatus};
+use alloc::{boxed::Box, collections::BinaryHeap, vec::Vec};
+use log::info;
+pub type TaskPin = Box<Task>;
+
+const LOWEST_PRIORITY: i8 = -1;
+const HIGHEST_PRIORITY: i8 = 6;
+
+pub struct TaskManager {
+    inner: STCell<TaskManagerInner>,
+}
+
+struct TaskManagerInner {
+    current: Option<usize>,
+    tasks: Vec<TaskPin>,
+}
+
+impl TaskManagerInner {
+
+    fn push_task(&mut self, task: TaskPin) {
+        self.tasks.push(task);
+    }
+
+    fn mark_current_task(&mut self, state: TaskStatus) {
+        self.tasks[self.current.unwrap()].state = state;
+    }
+
+    fn select_next(&mut self) -> *mut Task {
+        let len = self.tasks.len();
+        let current = self.current.unwrap();
+        for i in 0..len {
+            let index = (current + i) % len;
+            match self.tasks[index].state {
+                TaskStatus::Exited => todo!(),
+                TaskStatus::Ready => todo!(),
+                TaskStatus::Running => todo!(),
+                TaskStatus::Block => todo!(),
+            }
+        }
+        todo!()
+    }
+    fn current_task(&mut self) -> *mut Task {
+        self.tasks[self.current.unwrap()].as_mut() as *mut Task
+    }
+}
+
+impl TaskManager {
+    pub fn new() -> Self {
+        Self {
+            inner: STCell::new(TaskManagerInner {
+                current: None,
+                tasks: Vec::new(),
+            }),
+        }
+    }
+
+    pub fn current_task(&self) -> *mut Task {
+        self.inner.borrow_mut().current_task()
+    }
+
+    pub fn mark_current_task(&self, state: TaskStatus) {
+        self.inner.borrow_mut().mark_current_task(state);
+    }
+
+    pub fn push_task(&self, task: TaskPin) {
+        self.inner.borrow_mut().push_task(task);
+    }
+
+    pub fn run_next(&self) {
+        let mut inner = self.inner.borrow_mut();
+        let current = inner.current_task();
+        let next = inner.select_next();
+        drop(inner);
+
+        unsafe {
+            __switch(
+                &(*current).cx as *const _ as *mut TaskContex,
+                &(*next).cx as *const _ as *mut TaskContex,
+            );
+        }
+    }
+
+    pub fn run_first_app(&self) -> ! {
+        let mut inner = self.inner.borrow_mut();
+        let next = inner.select_next();
+        drop(inner);
+        unsafe {
+            __switch(
+                &TaskContex::default() as *const _ as *mut TaskContex,
+                &(*next).cx as *const _ as *mut TaskContex,
+            );
+        }
+        unreachable!()
+    }
+}

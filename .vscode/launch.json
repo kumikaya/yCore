@@ -1,0 +1,21 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "preLaunchTask": "Debug run",
+            "gdbpath": "riscv64-unknown-elf-gdb",
+            "type": "gdb",
+            "request": "attach",
+            "name": "Attach to gdbserver",
+            "autorun": [],
+            "executable": "${workspaceFolder}/target/riscv64gc-unknown-none-elf/debug/yife-os",
+            "target": "localhost:34110",
+            "remote": true,
+            "cwd": "${workspaceFolder}",
+            "valuesFormatting": "parseText"
+        }
+    ]
+}

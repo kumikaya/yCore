@@ -1,17 +1,22 @@
 use core::ops::Range;
 
-use crate::{config::*, stdlib::cell::STCell};
+use crate::{config::*, stdlib::cell::STCell, println};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[repr(i8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 enum PageDsc {
-    #[default]
     FREE,
     USED,
 }
 
+impl Default for PageDsc {
+    fn default() -> Self {
+        Self::FREE
+    }
+}
+
 struct MemMap {
-    map: [PageDsc; PAGE_NUMS],
+    map: Vec<PageDsc>,
 }
 
 impl MemMap {
@@ -40,13 +45,18 @@ impl MemMap {
 const MEMORY_SIZE: usize = MEMORY_END - MEMORY_START;
 const PAGE_NUMS: usize = MEMORY_SIZE / PAGE_SIZE;
 
+use alloc::vec::Vec;
 use lazy_static::*;
 use log::info;
 
 lazy_static! {
     static ref MEM_MAP: STCell<MemMap> = {
+        let mut map = Vec::with_capacity(PAGE_NUMS);
+        for _ in 0..PAGE_NUMS {
+            map.push(PageDsc::FREE);
+        }
         STCell::new(MemMap {
-            map: [PageDsc::default(); PAGE_NUMS],
+            map
         })
     };
 }
@@ -67,7 +77,7 @@ pub fn malloc_at(addr: usize, len: usize) -> bool {
         info!(
             "malloc memory succeed at [{:x}-{:x}]",
             addr,
-            addr + PAGE_SIZE * range.end
+            addr + PAGE_SIZE * (range.end - range.start)
         );
         mem_map.take(range);
     }

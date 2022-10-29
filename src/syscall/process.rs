@@ -1,10 +1,9 @@
-use crate::{
-    println,
-    task::{raw_yield, task::TaskStatus, to_yield, exit_and_run_next},
-};
+use log::info;
+
+use crate::task::{to_yield, exit_and_run_next};
 
 pub fn sys_exit(code: i32) -> ! {
-    println!("[Kernel] App exit with code {}", code);
+    info!("App exit with code {}", code);
     exit_and_run_next()
 }
 
