@@ -23,8 +23,6 @@ pub fn sys_sleep(ms: usize) -> isize {
             }
         }))
     }
-    // println!("Sleep");
     block_and_run_next();
-    // println!("Wake");
     0
 }

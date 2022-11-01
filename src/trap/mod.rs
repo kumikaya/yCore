@@ -2,25 +2,39 @@ pub mod context;
 
 use core::arch::asm;
 
+use log::warn;
 use riscv::register::{
     mtvec::TrapMode,
     scause::{self, Exception, Interrupt, Trap},
-    sie, stval, stvec, sstatus::{SPP, self},
+    sie, stval, stvec,
 };
 
 use crate::{
     println,
     syscall::syscall,
-    task::{exit_and_run_next, get_current_task, to_yield},
-    timer::set_next_trigger,
+    task::{exit_and_run_next, get_current_task, to_yield, user_token, get_task, current_task_trap_cx},
+    timer::set_next_trigger, config::{TRAMPOLINE, KERNEL_STACK_TOP, TRAP_CONTEXT},
 };
 
 use self::context::TrapContext;
 
-#[no_mangle]
-pub fn trap_handler(cx: &mut TrapContext) {
+fn set_user_trap_entry() {
+    unsafe {
+        stvec::write(TRAMPOLINE.0, TrapMode::Direct);
+    }
+}
+
+fn set_kernel_trap_entry() {
+    unsafe {
+        stvec::write(__kernel_trap_entry as usize, TrapMode::Direct);
+    }
+}
+
+pub unsafe fn trap_handler() -> ! {
+    set_kernel_trap_entry();
     let status = scause::read();
     let stval = stval::read();
+    let cx = &mut *current_task_trap_cx();
     match status.cause() {
         Trap::Exception(Exception::UserEnvCall) => {
             cx.sepc += 4;
@@ -28,7 +42,7 @@ pub fn trap_handler(cx: &mut TrapContext) {
         }
 
         Trap::Interrupt(Interrupt::SupervisorExternal) => {
-            println!("Interrupt at supervisor.");
+            unimplemented!("Interrupt at supervisor.");
         }
 
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
@@ -37,16 +51,15 @@ pub fn trap_handler(cx: &mut TrapContext) {
         }
         Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
             // debug_task_info(&cx);
-            println!("[kernel] PageFault in application, kernel killed it.");
-            exit_and_run_next()
+            warn!("PageFault in application, kernel killed it.");
+            exit_and_run_next();
         }
         Trap::Exception(Exception::IllegalInstruction) => {
             // debug_task_info(&cx);
-            println!("[kernel] IllegalInstruction in application, kernel killed it.");
-            exit_and_run_next()
+            warn!("IllegalInstruction in application, kernel killed it.");
+            exit_and_run_next();
         }
         _ => {
-            debug_task_info(&cx);
             panic!(
                 "Unsupported trap {:?}, stval = {:#x}!",
                 status.cause(),
@@ -54,30 +67,28 @@ pub fn trap_handler(cx: &mut TrapContext) {
             );
         }
     }
+    unsafe { user_trap_return(); }
 }
 
-pub fn debug_task_info(cx: &TrapContext) {
-    let task = get_current_task();
-    println!("task: {}", unsafe { &*task });
-    println!("{}", cx);
+#[repr(align(4))]
+pub fn __kernel_trap_entry() {
+    panic!("a trap from kernel!");
 }
 
 #[naked]
-#[repr(align(4))]
-pub unsafe extern "C" fn __trap_entry() {
+#[link_section = ".text.trampoline.entry"]
+pub unsafe extern "C" fn user_trap_entry() {
     asm! {r"
         .altmacro
         .macro SAVE_GP n
             sd x\n, \n*8(sp)
         .endm
         ",
+        // 切换到虚拟地址下的内核栈，保存上下文
         "
         csrrw sp, sscratch, sp
-        addi sp, sp, -34*8
         sd ra, 1*8(sp)
-        sd gp, 3*8(sp)",
-        // save x5~x31
-        "
+        sd gp, 3*8(sp)
         .set n, 5
         .rept 27
             SAVE_GP %n
@@ -89,32 +100,55 @@ pub unsafe extern "C" fn __trap_entry() {
         sd t0, 32*8(sp)
         sd t1, 33*8(sp)
         csrr t2, sscratch
-        sd t2, 2*8(sp)
-        mv a0, sp
-        call {trap_handler}
-        j {restore}
-        ",
-        trap_handler = sym trap_handler,
-        restore = sym __restore,
+        sd t2, 2*8(sp)",
+        // 切换到内核地址空间，内核栈设为物理地址
+        "
+        ld t0, 35*8(sp)
+        ld t1, 36*8(sp)
+        ld sp, 34*8(sp)
+        csrw satp, t0
+        sfence.vma
+        jr t1",
+        options(noreturn)
+    }
+}
+
+pub unsafe fn user_trap_return() -> ! {
+    set_user_trap_entry();
+    let satp = user_token();
+    (*get_current_task()).memory_set.check();
+    let restore = (user_restore as usize - user_trap_entry as usize) + TRAMPOLINE.0;
+    let trap_context = TRAP_CONTEXT.0;
+    asm! {
+        "
+        fence.i
+        jr {restore}",
+        restore = in(reg) restore,
+        in("a0") trap_context,
+        in("a1") satp,
         options(noreturn)
     }
 }
 
 #[naked]
-pub unsafe extern "C" fn __restore() {
+#[link_section = ".text.trampoline"]
+pub unsafe extern "C" fn user_restore(va_cx: usize, satp: usize) {
     asm! {r"
         .altmacro
         .macro LOAD_GP n
             ld x\n, \n*8(sp)
         .endm
         ",
+        // 切换到用户虚拟地址空间，内核栈设为虚拟地址
         "
+        csrw sscratch, a0
+        mv sp, a0
+        csrw satp, a1
+        sfence.vma
         ld t0, 32*8(sp)
         ld t1, 33*8(sp)
-        ld t2, 2*8(sp)
         csrw sstatus, t0
         csrw sepc, t1
-        csrw sscratch, t2
         ld ra, 1*8(sp)
         ld gp, 3*8(sp)",
         // restore x5~x31
@@ -124,8 +158,7 @@ pub unsafe extern "C" fn __restore() {
             LOAD_GP %n
             .set n, n+1
         .endr
-        addi sp, sp, 34*8
-        csrrw sp, sscratch, sp
+        ld sp, 2*8(sp)
         sret
         ",
         options(noreturn)
@@ -134,9 +167,7 @@ pub unsafe extern "C" fn __restore() {
 
 pub fn init() {
     unsafe {
-        let trap_entry = __trap_entry as usize;
-        stvec::write(trap_entry, TrapMode::Direct);
-        assert!(trap_entry & 0b11 == 0, "the __trap_entry has not aligned.");
+        set_user_trap_entry();
     }
 }
 

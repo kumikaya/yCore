@@ -1,9 +1,10 @@
 use crate::{config::PAGE_SIZE, println};
 use alloc::vec::Vec;
 use bitflags::bitflags;
+use riscv::register::satp;
 
 use super::{
-    address::{PhysAddr, PhysPageNum, VirtPageNum},
+    address::{PhysPageNum, VirtPageNum, PhysAddr, VirtAddr},
     frame_allocator::{frame_alloc, FrameTracker},
 };
 
@@ -34,7 +35,7 @@ impl PageTableEntry {
     }
 
     pub fn ppn(self) -> PhysPageNum {
-        PhysPageNum(self.bits >> 10 & ((1usize << 44) - 1))
+        (self.bits >> 10 & ((1usize << 44) - 1)).into()
     }
 
     pub fn flags(self) -> PTEFlags {
@@ -44,11 +45,6 @@ impl PageTableEntry {
     pub fn is_valid(self) -> bool {
         (self.flags() & PTEFlags::V) != PTEFlags::empty()
     }
-
-    pub fn is_leaf(self) -> bool {
-        self.flags() & (PTEFlags::R | PTEFlags::W | PTEFlags::X) != PTEFlags::empty()
-    }
-
     pub fn readable(&self) -> bool {
         (self.flags() & PTEFlags::R) != PTEFlags::empty()
     }
@@ -69,10 +65,10 @@ impl Default for PageTableEntry {
         Self { bits: 0 }
     }
 }
-
+#[derive(Debug)]
 pub struct PageTable {
-    root_ppn: PhysPageNum,
-    frames: Vec<FrameTracker>,
+    pub root_ppn: PhysPageNum,
+    pub frames: Vec<FrameTracker>,
 }
 
 impl PageTable {
@@ -85,6 +81,11 @@ impl PageTable {
             root_ppn: root_frame.ppn,
             frames: alloc::vec![root_frame],
         }
+    }
+
+    pub fn token(&self) -> usize {
+        let mode = (satp::Mode::Sv39 as usize) << 60;
+        mode | self.root_ppn.0
     }
 
     pub fn from_token(satp: usize) -> Self {
@@ -112,7 +113,7 @@ impl PageTable {
         unreachable!()
     }
 
-    fn find_pte(&self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
+    pub fn find_pte(&self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let indexs = vpn.indexs();
         let mut ppn = self.root_ppn;
         for (count, &idx) in indexs.iter().enumerate() {
@@ -128,6 +129,16 @@ impl PageTable {
         unreachable!()
     }
 
+    pub fn va_translate(&self, va: VirtAddr) -> Option<PhysAddr> {
+        let vpn: VirtPageNum = va.floor();
+        let ppn = self.translate(vpn);
+        if let Some(ppn) = ppn {
+            Some(PhysAddr::from(ppn.ppn()) + PhysAddr::from(va.page_offset()))
+        } else {
+            None
+        }
+    }
+
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: PTEFlags) {
         let pte_entry = self.get_pte_entry(vpn);
         assert!(
@@ -135,7 +146,7 @@ impl PageTable {
             "vpn {:?} is mapped before mapping",
             vpn
         );
-        *pte_entry = PageTableEntry::new(ppn, flags)
+        *pte_entry = PageTableEntry::new(ppn, flags | PTEFlags::V)
     }
     pub fn unmap(&mut self, vpn: VirtPageNum) {
         let pte = self.find_pte(vpn).unwrap();

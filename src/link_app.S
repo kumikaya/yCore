@@ -1,5 +1,5 @@
 
-.align 3
+.align 4
 .section .data
 .global _num_app
 .global app_0_start
@@ -19,18 +19,22 @@ _num_app:
     .quad app_3_start
     .quad app_3_end
 
+.align 4
 app_0_start:
-    .incbin "../user/target/riscv64gc-unknown-none-elf/release/00yield.bin"
+    .incbin "../user/target/riscv64gc-unknown-none-elf/release/00yield"
 app_0_end:
 
+.align 4
 app_1_start:
-    .incbin "../user/target/riscv64gc-unknown-none-elf/release/01sleep.bin"
+    .incbin "../user/target/riscv64gc-unknown-none-elf/release/01sleep"
 app_1_end:
 
+.align 4
 app_2_start:
-    .incbin "../user/target/riscv64gc-unknown-none-elf/release/02sort.bin"
+    .incbin "../user/target/riscv64gc-unknown-none-elf/release/02sort"
 app_2_end:
 
+.align 4
 app_3_start:
-    .incbin "../user/target/riscv64gc-unknown-none-elf/release/03Illegal_app.bin"
+    .incbin "../user/target/riscv64gc-unknown-none-elf/release/03priv_inst"
 app_3_end:

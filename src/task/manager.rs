@@ -1,14 +1,14 @@
 use core::mem::swap;
 
-use crate::{print, println, stdlib::cell::STCell, task::switch::__switch};
+use crate::{print, println, stdlib::cell::STCell, task::switch::__switch, config::TRAP_CONTEXT, mem::page_table::PageTableEntry, trap::context::TrapContext};
 
 use super::task::{Task, TaskContex, TaskStatus};
-use alloc::{boxed::Box, collections::BinaryHeap};
+use alloc::{boxed::Box, collections::BinaryHeap, vec::Vec};
 use log::info;
 
 pub type TaskPin = Box<Task>;
 
-const LOWEST_PRIORITY: i8 = -1;
+const LOWEST_PRIORITY: i8 = -4;
 const HIGHEST_PRIORITY: i8 = 6;
 
 pub struct TaskManager {
@@ -18,6 +18,7 @@ pub struct TaskManager {
 struct TaskManagerInner {
     current: Option<TaskPin>,
     priority_queue: BinaryHeap<TaskPin>,
+    _exited: Vec<TaskPin>,
 }
 
 impl TaskManagerInner {
@@ -59,6 +60,7 @@ impl TaskManagerInner {
             }
         }
 
+        
         // 按实时优先级寻找Ready的任务
         while let Some(mut task) = self.pop_task() {
             match task.state {
@@ -72,11 +74,11 @@ impl TaskManagerInner {
                 TaskStatus::Block => {
                     task.pull();
                     task.down();
-                    self.push_task(task)
+                    self.push_task(task);
                 }
                 _ => {
                     task.down();
-                    self.push_task(task)
+                    self.push_task(task);
                 }
             }
         }
@@ -89,6 +91,19 @@ impl TaskManagerInner {
     fn current_task(&mut self) -> *mut Task {
         self.current.as_mut().unwrap().as_mut() as *mut Task
     }
+    pub fn get_task(&mut self, uid: usize) -> Option<*mut Task> {
+        if let Some(task) = &self.current {
+            if task.uid == uid {
+                return Some(task.as_ref() as *const _ as *mut Task);
+            }
+        }
+        for task in self.priority_queue.iter() {
+            if task.uid == uid {
+                return Some(task.as_ref() as *const _ as *mut Task);
+            }
+        }
+        None
+    }
 }
 
 impl TaskManager {
@@ -97,6 +112,7 @@ impl TaskManager {
             inner: STCell::new(TaskManagerInner {
                 current: None,
                 priority_queue: BinaryHeap::new(),
+                _exited: Vec::new(),
             }),
         }
     }
@@ -113,7 +129,7 @@ impl TaskManager {
         self.inner.borrow_mut().push_task(task);
     }
 
-    pub fn run_next(&self) {
+    pub fn switch_next(&self) {
         let mut inner = self.inner.borrow_mut();
         let current = inner.current_task();
         let next = inner.select_next();
@@ -126,7 +142,23 @@ impl TaskManager {
         }
     }
 
-    pub fn run_first_app(&self) -> ! {
+    pub fn get_task(&self, uid: usize) -> Option<*mut Task> {
+        if unsafe { (*self.current_task()).uid } == uid {
+            return Some(self.current_task());
+        }
+        for task in self.inner.borrow().priority_queue.iter() {
+            if task.uid == uid {
+                return Some(task.as_ref() as *const _ as *mut Task);
+            }
+        }
+        None
+    }
+
+    pub unsafe fn current_task_trap_cx(&self) -> *mut TrapContext {
+        (*self.current_task()).trap_cx.0 as *mut TrapContext
+    }
+
+    pub fn go_next_app(&self) -> ! {
         let mut inner = self.inner.borrow_mut();
         let next = inner.select_next();
         drop(inner);

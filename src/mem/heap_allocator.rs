@@ -24,6 +24,8 @@ pub fn handle_alloc_error(layout: core::alloc::Layout) -> ! {
 pub fn heap_test() {
     use alloc::boxed::Box;
     use alloc::vec::Vec;
+
+    use crate::stdlib::ansi::{Colour, Color};
     extern "C" {
         fn sbss();
         fn ebss();
@@ -42,5 +44,5 @@ pub fn heap_test() {
     }
     assert!(bss_range.contains(&(v.as_ptr() as usize)));
     drop(v);
-    println!("[passed] heap_test");
+    println!("[{}] heap_test", "passed".dye(Color::GreenB));
 }

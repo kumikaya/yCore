@@ -1,12 +1,12 @@
-use crate::{config::PAGE_SIZE, println};
+use crate::{config::PAGE_SIZE, println, stdlib::ansi::{Colour, Color}};
 
 
 pub fn clear_bss() {
     extern "C" {
-        fn sbss();
+        fn stack_bottom();
         fn ebss();
     }
-    let sbss = sbss as usize;
+    let sbss = stack_bottom as usize;
     let ebss = ebss as usize;
     unsafe {
         core::slice::from_raw_parts_mut(sbss as *mut u8, ebss - sbss).fill(0);
@@ -29,6 +29,6 @@ pub fn stack_cover_test() {
     unsafe {
         let un_cover = core::slice::from_raw_parts(stack_top as *const u8, PAGE_SIZE).iter().any(|&x| x == u8::MAX);
         assert!(un_cover);
-        println!("[passed] stack_cover_test");
+        println!("[{}] stack_cover_test", "passed".dye(Color::GreenB));
     }
 }

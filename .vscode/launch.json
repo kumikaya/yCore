@@ -15,7 +15,8 @@
             "target": "localhost:34110",
             "remote": true,
             "cwd": "${workspaceFolder}",
-            "valuesFormatting": "parseText"
+            "valuesFormatting": "parseText",
+            // "stopAtConnect": true
         }
     ]
 }

@@ -1,10 +1,9 @@
 #![no_std]
 #![no_main]
-#![feature(step_trait)]
+#![feature(const_trait_impl, step_trait)]
 #![feature(fn_align, naked_functions, asm_const)]
 #![feature(panic_info_message, alloc_error_handler)]
 mod config;
-mod debug;
 mod init;
 mod lang_items;
 mod mem;
@@ -29,7 +28,7 @@ global_asm!(include_str!("link_app.S"));
 #[no_mangle]
 #[link_section = ".text.entry"]
 unsafe extern "C" fn _start() -> ! {
-    #[link_section = ".stack"]
+    #[link_section = ".bss.stack"]
     static mut KERNEL_STACK: [u8; KERNEL_INIT_STACK_SIZE] = [0; KERNEL_INIT_STACK_SIZE];
     asm! {"
         la  sp, {stack}
@@ -44,14 +43,14 @@ unsafe extern "C" fn _start() -> ! {
     }
 }
 
-#[no_mangle]
 pub fn rust_main() -> ! {
     // 初始化bss段
     init::clear_bss();
     // init::init_stack_guard();
     // 初始化日志系统
     logging::init();
-    mem::heap_allocator::init_heap();
+    config::config_align_check();
+    mem::init();
 
     #[cfg(feature = "debug_test")]
     {
@@ -66,7 +65,7 @@ pub fn rust_main() -> ! {
 
     // 中断初始化
     trap::init();
-    task::allocater::init();
+    // task::allocater::init();
     task::init();
     // init::stack_cover_test();
     trap::enable_timer_interrupt();

@@ -2,7 +2,7 @@ use alloc::{vec::Vec, alloc::dealloc};
 use lazy_static::lazy_static;
 use log::info;
 
-use crate::{stdlib::cell::STCell, mem::address::PhysAddr, config::{MEMORY_END, PAGE_SIZE}, println};
+use crate::{stdlib::cell::STCell, mem::address::PhysAddr, config::MEMORY_END, println};
 
 use super::address::PhysPageNum;
 
@@ -16,6 +16,10 @@ lazy_static! {
             StackFrameAllocator::new(PhysAddr(ekernel as usize).ceil(), PhysAddr(MEMORY_END).floor())
         )
     };
+}
+
+pub fn init_frame_allocator() {
+    FRAME_ALLOCATOR.borrow();
 }
 
 trait FrameAllocator {
@@ -106,6 +110,8 @@ fn free_frame_num() -> usize {
 
 #[cfg(feature = "debug_test")]
 pub fn frame_allocator_test() {
+    use crate::stdlib::ansi::{Colour, Color};
+
     let mut v: Vec<FrameTracker> = Vec::new();
     let frame_num = free_frame_num();
     const ALLOC_NUM: usize = 1024;
@@ -116,5 +122,5 @@ pub fn frame_allocator_test() {
     assert_eq!(frame_num - ALLOC_NUM, free_frame_num());
     v.clear();
     assert_eq!(frame_num, free_frame_num());
-    println!("[padded] frame_allocator_test");
+    println!("[{}] frame_allocator_test", "passed".dye(Color::GreenB));
 }

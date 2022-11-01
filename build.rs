@@ -27,6 +27,13 @@ SECTIONS {
     .text : ALIGN(4k) {
         stext = .;
         *(.text.entry)
+
+        . = ALIGN(4K);
+        strampoline = .;
+        *(.text.trampoline.entry);
+        *(.text.trampoline);
+        . = ALIGN(4K);
+
         *(.text .text.*)
         etext = .;
     } > DRAM
@@ -37,22 +44,19 @@ SECTIONS {
         *(.srodata .srodata.*)
         erodata = .;
     } > DRAM
-
-    .stack (NOLOAD) : ALIGN(4k) {
-        stack_top = .;
-        *(.stack)
-        stack_bottom = .;
-    } > DRAM
-
+    
     .data : ALIGN(4k) {
         sdata = .;
         *(.data .data.*)
         *(.sdata .sdata.*)
         edata = .;
     } > DRAM
-
+    
     .bss (NOLOAD) : ALIGN(4k) {
         sbss = .;
+        stack_top = .;
+        *(.bss.stack)
+        stack_bottom = .;
         *(.bss .bss.*)
         *(.sbss .sbss.*)
         ebss = .;
@@ -72,7 +76,6 @@ fn insert_app_data() -> Result<()> {
     let mut apps: Vec<String> = read_dir("../user/src/bin").unwrap()
         .filter_map(|entry| {
             let mut name_ext = entry.unwrap().file_name().into_string().unwrap();
-            // println!("{}", name_ext);
             if let Some(i) = name_ext.find(".") {
                 let ext: String = name_ext.drain(i..name_ext.len()).collect();
                 if ext.as_str() == ".rs" {
@@ -86,7 +89,7 @@ fn insert_app_data() -> Result<()> {
         }).collect();
     apps.sort();
     writeln!(file, "
-.align 3
+.align 4
 .section .data
 .global _num_app"
         )?;
@@ -107,8 +110,9 @@ _num_app:
     writeln!(file, "    .quad app_{}_end", apps.len() - 1).unwrap();
     apps.iter().enumerate().for_each(|(i, name)| {
         writeln!(file, "
+.align 4
 app_{0}_start:
-    .incbin \"{1}{2}.bin\"
+    .incbin \"{1}{2}\"
 app_{0}_end:",
         i, TARGET_PATH, name).unwrap();
     });

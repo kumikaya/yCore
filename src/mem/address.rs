@@ -1,5 +1,6 @@
+use core::ops::{Sub, SubAssign, Add, Mul};
 use core::{ops::AddAssign, mem::size_of, slice, iter::Step};
-use core::fmt::Debug;
+use core::fmt::{Debug, Display};
 use crate::config::{PAGE_SIZE, PAGE_WIDTH, SV39_PAGE_LEVEL, SV39_PAGE_INDEX_WIDTH};
 use crate::println;
 
@@ -8,17 +9,85 @@ use super::page_table::PageTableEntry;
 const PA_WIDTH_SV39: usize = 56;
 const PPN_WIDTH_SV39: usize = PA_WIDTH_SV39 - PAGE_WIDTH;
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[repr(C)]
 pub struct PhysAddr(pub usize);
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[repr(C)]
 pub struct VirtAddr(pub usize);
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[repr(C)]
 pub struct PhysPageNum(pub usize);
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[repr(C)]
 pub struct VirtPageNum(pub usize);
+
+macro_rules! impl_add_and_sub {
+    ($type: ty) => {
+        impl const Add for $type {
+            type Output = Self;
+        
+            fn add(self, rhs: Self) -> Self::Output {
+                Self(self.0 + rhs.0)
+            }
+        }
+        impl AddAssign for $type {
+            fn add_assign(&mut self, rhs: Self) {
+                self.0 += rhs.0;
+            }
+        }
+        impl const Sub for $type {
+            type Output = Self;
+        
+            fn sub(self, rhs: Self) -> Self::Output {
+                Self(self.0 - rhs.0)
+            }
+        }
+        impl SubAssign for $type {
+            fn sub_assign(&mut self, rhs: Self) {
+                self.0 -= rhs.0;
+            }
+        }
+    };
+}
+
+macro_rules! impl_offset {
+    ($type: ty) => {
+        impl $type {
+            pub const fn offset(self, val: isize) -> Self {
+                Self(self.0 + (val as usize))
+            }
+        }
+    };
+}
+
+macro_rules! impl_display {
+    ($type: ty) => {
+        impl Display for $type {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                write!(f, "{:#x}", self.0)
+            }
+        }        
+    };
+}
+
+impl_add_and_sub!(PhysAddr);
+impl_add_and_sub!(VirtAddr);
+impl_add_and_sub!(PhysPageNum);
+impl_add_and_sub!(VirtPageNum);
+
+impl_offset!(PhysAddr);
+impl_offset!(VirtAddr);
+impl_offset!(PhysPageNum);
+impl_offset!(VirtPageNum);
+
+impl_display!(PhysAddr);
+impl_display!(VirtAddr);
+impl_display!(PhysPageNum);
+impl_display!(VirtPageNum);
 
 
 impl From<usize> for PhysAddr {
@@ -43,11 +112,6 @@ impl From<PhysPageNum> for usize {
     }
 }
 
-impl PhysAddr {
-    pub fn page_offset(&self) -> usize {
-        self.0 & (PAGE_SIZE - 1)
-    }
-}
 
 impl From<PhysAddr> for PhysPageNum {
     fn from(v: PhysAddr) -> Self {
@@ -94,6 +158,12 @@ impl PhysAddr {
     pub fn ceil(&self) -> PhysPageNum {
         PhysPageNum((self.0 + PAGE_SIZE - 1) / PAGE_SIZE)
     }
+    pub fn page_offset(self) -> usize {
+        self.0 & (PAGE_SIZE - 1)
+    }
+    pub fn is_page_align(self) -> bool {
+        self.page_offset() == 0
+    }
 
 }
 
@@ -115,7 +185,7 @@ impl VirtAddr {
         VirtPageNum(self.0 / PAGE_SIZE)
     }
     pub fn ceil(&self) -> VirtPageNum {
-        VirtPageNum((self.0 + PAGE_SIZE - 1) / PAGE_SIZE)
+        VirtPageNum((self.0 + (PAGE_SIZE - 1)) / PAGE_SIZE)
     }
     pub fn page_offset(self) -> usize {
         self.0 & (PAGE_SIZE - 1)
@@ -142,10 +212,16 @@ impl PhysPageNum {
 
 }
 
+
 pub trait StepByOne {
     fn step(&mut self);
 }
 impl StepByOne for VirtPageNum {
+    fn step(&mut self) {
+        self.0 += 1;
+    }
+}
+impl StepByOne for PhysPageNum {
     fn step(&mut self) {
         self.0 += 1;
     }
@@ -219,3 +295,13 @@ where
 
 /// a simple range structure for virtual page number
 pub type VPNRange = SimpleRange<VirtPageNum>;
+pub type PPNRange = SimpleRange<PhysPageNum>;
+
+impl<T> Debug for SimpleRange<T>
+where
+    T: StepByOne + Debug + Copy + PartialOrd,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SimpleRange").field("l", &self.l).field("r", &self.r).finish()
+    }
+}

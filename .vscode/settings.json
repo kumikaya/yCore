@@ -2,5 +2,9 @@
     "lldb.displayFormat": "auto",
     "lldb.showDisassembly": "auto",
     "lldb.dereferencePointers": true,
-    "lldb.consoleMode": "commands"
+    "lldb.consoleMode": "commands",
+    "rust-analyzer.checkOnSave.extraArgs": [
+        "--target",
+        "riscv64gc-unknown-none-elf"
+    ]
 }
