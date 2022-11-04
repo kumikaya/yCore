@@ -1,7 +1,4 @@
-use crate::{
-    println,
-    task::task::{Task, TaskContex},
-};
+use crate::task::task::TaskContex;
 use core::arch::asm;
 
 #[naked]

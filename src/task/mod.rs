@@ -4,8 +4,6 @@ pub mod manager;
 pub mod task;
 pub mod switch;
 use core::slice;
-
-use alloc::boxed::Box;
 use log::info;
 use task::*;
 
@@ -21,25 +19,32 @@ lazy_static! {
     };
 }
 
+pub fn get_task(uid: usize) -> Option<*const Task> {
+    TASK_MANAGER.borrow().get_task(uid)
+}
+
 pub fn current_task_trap_cx() -> *mut TrapContext {
     unsafe {
         TASK_MANAGER.borrow().current_task_trap_cx()
     }
 }
 
-pub fn get_current_task() -> *mut Task {
+pub fn current_task() -> *mut Task {
     TASK_MANAGER.borrow().current_task()
 }
 
 pub fn user_space() -> &'static MemorySet {
     unsafe {
-        &(*get_current_task()).memory_set
+        &(*current_task()).memory_set
     }
 }
 
-pub fn get_task(uid: usize) -> Option<*mut Task> {
-    TASK_MANAGER.borrow().get_task(uid)
+pub fn user_space_mut() -> &'static mut MemorySet {
+    unsafe {
+        &mut (*current_task()).memory_set
+    }
 }
+
 
 pub fn user_addr_translate(va: VirtAddr) -> Option<PhysAddr> {
     user_space().va_translate(va)
@@ -66,7 +71,7 @@ pub fn init() {
                 slice::from_raw_parts(start as *const u8, len)
             }
         ).unwrap();
-        task_manager.push_task(Box::new(Task::from_elf(elf)));
+        task_manager.push_task(Task::from_elf(elf));
     }
 }
 

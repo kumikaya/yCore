@@ -4,7 +4,8 @@ MODE := debug
 KERNEL_NAME = yife-os
 KERNEL_ELF = target/$(TARGET)/$(MODE)/$(KERNEL_NAME)
 KERNEL_BIN = $(KERNEL_ELF).bin
-FEATURES = debug_test
+FEATURES = 
+# debug_test
 QEMU_ARGS := 
 CARGO_ARGS :=
 gdb = true

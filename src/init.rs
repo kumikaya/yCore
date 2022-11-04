@@ -1,6 +1,5 @@
 use crate::{config::PAGE_SIZE, println, stdlib::ansi::{Colour, Color}};
 
-
 pub fn clear_bss() {
     extern "C" {
         fn stack_bottom();

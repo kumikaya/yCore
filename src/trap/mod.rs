@@ -6,14 +6,19 @@ use log::warn;
 use riscv::register::{
     mtvec::TrapMode,
     scause::{self, Exception, Interrupt, Trap},
-    sie, stval, stvec,
+    sie, sstatus, stval, stvec,
 };
 
 use crate::{
-    println,
+    config::{TRAMPOLINE, TRAP_CONTEXT},
+    mem::address::VirtAddr,
+    stdlib::ansi::Colour,
     syscall::syscall,
-    task::{exit_and_run_next, get_current_task, to_yield, user_token, get_task, current_task_trap_cx},
-    timer::set_next_trigger, config::{TRAMPOLINE, KERNEL_STACK_TOP, TRAP_CONTEXT},
+    task::{
+        current_task_trap_cx, exit_and_run_next, get_task, to_yield,
+        user_token,
+    },
+    timer::set_next_trigger,
 };
 
 use self::context::TrapContext;
@@ -30,6 +35,11 @@ fn set_kernel_trap_entry() {
     }
 }
 
+pub fn get_trap(uid: usize) -> &'static TrapContext {
+    let task = get_task(1001).unwrap();
+    unsafe { &*((*task).trap_cx.0 as *const TrapContext) }
+}
+
 pub unsafe fn trap_handler() -> ! {
     set_kernel_trap_entry();
     let status = scause::read();
@@ -40,23 +50,16 @@ pub unsafe fn trap_handler() -> ! {
             cx.sepc += 4;
             cx.regs[10] = syscall(cx.regs[17], cx.regs[10], cx.regs[11], cx.regs[12]) as usize;
         }
-
-        Trap::Interrupt(Interrupt::SupervisorExternal) => {
-            unimplemented!("Interrupt at supervisor.");
-        }
-
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
             set_next_trigger();
             to_yield();
         }
         Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
-            // debug_task_info(&cx);
-            warn!("PageFault in application, kernel killed it.");
+            warn!("PageFault[{:#x}] in application, kernel killed it.", stval::read());
             exit_and_run_next();
         }
         Trap::Exception(Exception::IllegalInstruction) => {
-            // debug_task_info(&cx);
-            warn!("IllegalInstruction in application, kernel killed it.");
+            warn!("IllegalInstruction[{:#x}] in application, kernel killed it.", stval::read());
             exit_and_run_next();
         }
         _ => {
@@ -67,7 +70,9 @@ pub unsafe fn trap_handler() -> ! {
             );
         }
     }
-    unsafe { user_trap_return(); }
+    unsafe {
+        user_trap_return();
+    }
 }
 
 #[repr(align(4))]
@@ -84,7 +89,7 @@ pub unsafe extern "C" fn user_trap_entry() {
             sd x\n, \n*8(sp)
         .endm
         ",
-        // 切换到虚拟地址下的内核栈，保存上下文
+        // 保存上下文
         "
         csrrw sp, sscratch, sp
         sd ra, 1*8(sp)
@@ -101,7 +106,7 @@ pub unsafe extern "C" fn user_trap_entry() {
         sd t1, 33*8(sp)
         csrr t2, sscratch
         sd t2, 2*8(sp)",
-        // 切换到内核地址空间，内核栈设为物理地址
+        // 切换到内核地址空间
         "
         ld t0, 35*8(sp)
         ld t1, 36*8(sp)
@@ -116,12 +121,10 @@ pub unsafe extern "C" fn user_trap_entry() {
 pub unsafe fn user_trap_return() -> ! {
     set_user_trap_entry();
     let satp = user_token();
-    (*get_current_task()).memory_set.check();
     let restore = (user_restore as usize - user_trap_entry as usize) + TRAMPOLINE.0;
     let trap_context = TRAP_CONTEXT.0;
     asm! {
         "
-        fence.i
         jr {restore}",
         restore = in(reg) restore,
         in("a0") trap_context,
@@ -139,12 +142,12 @@ pub unsafe extern "C" fn user_restore(va_cx: usize, satp: usize) {
             ld x\n, \n*8(sp)
         .endm
         ",
-        // 切换到用户虚拟地址空间，内核栈设为虚拟地址
+        // 切换到用户虚拟地址空间，恢复寄存器
         "
-        csrw sscratch, a0
-        mv sp, a0
         csrw satp, a1
         sfence.vma
+        csrw sscratch, a0
+        mv sp, a0
         ld t0, 32*8(sp)
         ld t1, 33*8(sp)
         csrw sstatus, t0
@@ -166,12 +169,13 @@ pub unsafe extern "C" fn user_restore(va_cx: usize, satp: usize) {
 }
 
 pub fn init() {
-    unsafe {
-        set_user_trap_entry();
-    }
+    set_user_trap_entry();
 }
 
 pub fn enable_timer_interrupt() {
-    unsafe { sie::set_stimer() };
+    unsafe {
+        sstatus::clear_sie();
+        sie::set_stimer();
+    }
     set_next_trigger();
 }

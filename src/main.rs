@@ -46,7 +46,6 @@ unsafe extern "C" fn _start() -> ! {
 pub fn rust_main() -> ! {
     // 初始化bss段
     init::clear_bss();
-    // init::init_stack_guard();
     // 初始化日志系统
     logging::init();
     config::config_align_check();
@@ -65,9 +64,7 @@ pub fn rust_main() -> ! {
 
     // 中断初始化
     trap::init();
-    // task::allocater::init();
     task::init();
-    // init::stack_cover_test();
     trap::enable_timer_interrupt();
     task::run_first_app()
 }

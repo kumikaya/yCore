@@ -1,28 +1,27 @@
-use core::ops::{Sub, SubAssign, Add, Mul};
-use core::{ops::AddAssign, mem::size_of, slice, iter::Step};
+use core::ops::{Sub, SubAssign, Add};
+use core::{ops::AddAssign, mem::size_of, slice};
 use core::fmt::{Debug, Display};
 use crate::config::{PAGE_SIZE, PAGE_WIDTH, SV39_PAGE_LEVEL, SV39_PAGE_INDEX_WIDTH};
-use crate::println;
 
 use super::page_table::PageTableEntry;
 
 const PA_WIDTH_SV39: usize = 56;
 const PPN_WIDTH_SV39: usize = PA_WIDTH_SV39 - PAGE_WIDTH;
 
-#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PhysAddr(pub usize);
 
-#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct VirtAddr(pub usize);
 
-#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PhysPageNum(pub usize);
 
-#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct VirtPageNum(pub usize);
 
 macro_rules! impl_add_and_sub {
@@ -147,6 +146,17 @@ impl From<VirtAddr> for VirtPageNum {
 impl From<VirtPageNum> for VirtAddr {
     fn from(v: VirtPageNum) -> Self {
         Self(v.0 << PAGE_WIDTH)
+    }
+}
+
+impl From<VirtAddr> for usize {
+    fn from(v: VirtAddr) -> Self {
+        v.0
+    }
+}
+impl From<VirtPageNum> for usize {
+    fn from(v: VirtPageNum) -> Self {
+        v.0
     }
 }
 
