@@ -1,16 +1,32 @@
 use crate::{
-    task::{block_and_run_next, current_task, task::Tigger},
-    timer,
+    mem::{address::VirtAddr, memory_set::MapPerm, page_table::PTEFlags},
+    task::processor::Hart,
 };
 
-pub fn sys_get_time() -> isize {
-    timer::get_time_ms() as isize
+pub(super) trait Sys {
+    fn sys_munmap(&self, va: VirtAddr, len: usize) -> isize;
+    fn sys_mmap(&self, va: VirtAddr, len: usize, perm: usize) -> isize;
 }
 
-pub fn sys_sleep(ms: usize) -> isize {
-    unsafe {
-        (*current_task()).trigger = Tigger::timer(ms);
+impl<T: Hart> Sys for T {
+    fn sys_munmap(&self, va: VirtAddr, len: usize) -> isize {
+        let range = va.floor()..va.offset(len as isize).ceil();
+        let user_space = self.current_task().space();
+        for vpn in range {
+            user_space.free(vpn).unwrap();
+        }
+        0
     }
-    block_and_run_next();
-    0
+
+    fn sys_mmap(&self, va: VirtAddr, len: usize, perm: usize) -> isize {
+        let perm = MapPerm::from_bits_truncate(perm as u8);
+        assert_ne!(perm & MapPerm::RWX, MapPerm::empty());
+        let flags = PTEFlags::from_bits_truncate(perm.bits());
+        let range = va.floor()..va.offset(len as isize).ceil();
+        let user_space = self.current_task().space();
+        for vpn in range {
+            user_space.malloc(vpn, flags).unwrap();
+        }
+        0
+    }
 }

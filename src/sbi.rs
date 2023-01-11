@@ -1,6 +1,9 @@
 #![allow(unused)] // 此行在文件最开头
 use core::arch::asm;
+use log::info;
+use sbi_rt::{self, SbiRet};
 
+use crate::{println, rust_main, _start};
 const SBI_SET_TIMER: usize = 0;
 const SBI_CONSOLE_PUTCHAR: usize = 1;
 const SBI_CONSOLE_GETCHAR: usize = 2;
@@ -34,11 +37,29 @@ pub fn console_getchar() -> usize {
     sbi_call(SBI_CONSOLE_GETCHAR, 0, 0, 0)
 }
 
+#[inline]
 pub fn set_timer(timer: usize) {
-    sbi_call(SBI_SET_TIMER, timer, 0, 0);
+    sbi_rt::set_timer(timer as u64);
+    // sbi_call(SBI_SET_TIMER, timer, 0, 0);
 }
 
 pub fn shutdown() -> ! {
-    sbi_call(SBI_SHUTDOWN, 0, 0, 0);
+    sbi_rt::system_reset(sbi_rt::Shutdown, sbi_rt::NoReason);
+    // sbi_call(SBI_SHUTDOWN, 0, 0, 0);
     panic!("It should shutdown!");
+}
+
+#[inline]
+pub fn hart_start(hartid: usize, start_addr: usize, opaque: usize) {
+    sbi_rt::hart_start(hartid, start_addr, opaque);
+}
+
+pub fn hart_init() {
+    for id in 0..8 {
+        let ret = sbi_rt::hart_get_status(id);
+        println!("id[{}], val: {}, err: {}", id, ret.value, ret.error);
+    }
+    let ret = sbi_rt::hart_start(0, _start as usize, 0);
+    let ret = sbi_rt::hart_start(1, _start as usize, 0);
+    info!("val: {}, err: {}", ret.value, ret.error);
 }

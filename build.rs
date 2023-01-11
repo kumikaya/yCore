@@ -1,15 +1,15 @@
 use std::fs::{self, read_dir, File};
 use std::io::{Result, Write};
 use std::{env, path::PathBuf};
-static TARGET_PATH: &str = "../user/target/riscv64gc-unknown-none-elf/release/";
+const TARGET_PATH: &str = "../user/target/riscv64gc-unknown-none-elf/release/";
 
 fn main() {
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=../user/src/");
-    println!("cargo:rerun-if-changed={}", TARGET_PATH);
     let ld = &PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("linker.ld");
     fs::write(ld, LINKER).unwrap();
     insert_app_data().unwrap();
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=../user/src/");
+    println!("cargo:rerun-if-changed={}", TARGET_PATH);
     println!("cargo:rustc-link-arg=-T{}", ld.display());
 }
 
@@ -89,9 +89,10 @@ fn insert_app_data() -> Result<()> {
         }).collect();
     apps.sort();
     writeln!(file, "
-.align 4
+.align 3
 .section .data
-.global _num_app"
+.global _app_num
+.global _app_names"
         )?;
 
     apps.iter().enumerate().for_each(|(i, _name)| {
@@ -100,7 +101,7 @@ fn insert_app_data() -> Result<()> {
     });
 
     writeln!(file, "
-_num_app:
+_app_num:
     .quad {}",
         apps.len())?;
 
@@ -108,9 +109,16 @@ _num_app:
         writeln!(file, "    .quad app_{}_start", i).unwrap();
     });
     writeln!(file, "    .quad app_{}_end", apps.len() - 1).unwrap();
+    
+    writeln!(file, "
+_app_names:")?;
+    apps.iter().for_each(|name| {
+        writeln!(file, r#"    .string "{}""#, name).unwrap();
+    });
+    
     apps.iter().enumerate().for_each(|(i, name)| {
         writeln!(file, "
-.align 4
+.align 3
 app_{0}_start:
     .incbin \"{1}{2}\"
 app_{0}_end:",

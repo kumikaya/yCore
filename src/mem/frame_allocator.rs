@@ -2,25 +2,25 @@ use alloc::vec::Vec;
 use lazy_static::lazy_static;
 use log::info;
 
-use crate::{stdlib::cell::STCell, mem::address::PhysAddr, config::MEMORY_END, println};
+use crate::{tools::cell::STRefCell, mem::address::PhysAddr, config::MEMORY_END, println};
 
 use super::address::PhysPageNum;
 
 
 lazy_static! {
-    pub static ref FRAME_ALLOCATOR: STCell<StackFrameAllocator> = {
+    pub static ref FRAME_ALLOCATOR: STRefCell<StackFrameAllocator> = {
         extern "C" {
             fn ekernel();
         }
-        STCell::new(
+        STRefCell::new(
             StackFrameAllocator::new(PhysAddr(ekernel as usize).ceil(), PhysAddr(MEMORY_END).floor())
         )
     };
 }
 
-pub fn init_frame_allocator() {
-    FRAME_ALLOCATOR.borrow();
-}
+// pub fn init_frame_allocator() {
+//     FRAME_ALLOCATOR.borrow();
+// }
 
 trait FrameAllocator {
     // fn new() -> Self;
@@ -93,11 +93,9 @@ impl Drop for FrameTracker {
 }
 
 pub fn frame_alloc() -> Option<FrameTracker> {
-    if let Some(frame) = FRAME_ALLOCATOR.borrow_mut().alloc() {
-        Some(FrameTracker::new(frame))
-    } else {
-        None
-    }
+    FRAME_ALLOCATOR.borrow_mut().alloc().map(|frame| {
+        FrameTracker::new(frame)
+    })
 }
 
 fn frame_dealloc(ppn: PhysPageNum) {
@@ -110,7 +108,7 @@ fn free_frame_num() -> usize {
 
 #[cfg(feature = "debug_test")]
 pub fn frame_allocator_test() {
-    use crate::stdlib::ansi::{Colour, Color};
+    use crate::tools::ansi::{Colour, Color};
 
     let mut v: Vec<FrameTracker> = Vec::new();
     let frame_num = free_frame_num();

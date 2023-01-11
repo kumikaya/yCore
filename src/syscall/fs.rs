@@ -1,29 +1,63 @@
 use crate::{
-    config::PAGE_SIZE,
-    mem::{address::VirtAddr, page_table::translated_byte_buffer},
-    print,
-    task::user_space,
+    mem::{
+        address::VirtAddr,
+        page_table::{translated_byte_buffer, translated_string, UserBuffer},
+    },
+    task::processor::Hart,
 };
 
-const FD_STDOUT: usize = 1;
+// const FD_STDIN: usize = 0;
+// const FD_STDOUT: usize = 1;
 
-pub fn sys_write(fd: usize, buf: VirtAddr, len: usize) -> isize {
-    match fd {
-        FD_STDOUT => {
-            assert!(len <= PAGE_SIZE, "unimplemented");
-            let buffers = translated_byte_buffer(user_space(), buf, len);
-            for buffer in buffers {
-                let s: &str = unsafe {
-                    core::str::from_utf8_unchecked(&*buffer)
-                };
-                print!("{}", s);
-            }
-            len as isize
-        }
-        _ => todo!(),
-    }
+pub(super) trait FS {
+    fn sys_write(&self, fd: usize, buf: usize, len: usize) -> isize;
+    fn sys_read(&self, fd: usize, buf: usize, len: usize) -> isize;
+    fn sys_open(&self, ptr: VirtAddr, len: usize, flags: u32) -> isize;
+    fn sys_close(&self, fd: usize) -> isize;
 }
 
-pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
-    todo!()
+impl<T: Hart> FS for T {
+    fn sys_write(&self, fd: usize, buf: usize, len: usize) -> isize {
+        let task = self.current_task();
+        let fd_table = &task.inner.borrow().fd_table;
+        if let Some(Some(file)) = fd_table.get(fd) {
+            if file.writable() {
+                let buffer = unsafe {
+                    UserBuffer::new(translated_byte_buffer(task.space(), buf.into(), len))
+                };
+                return file.write(&buffer) as isize;
+            }
+        }
+        -1
+    }
+
+    fn sys_read(&self, fd: usize, buf: usize, len: usize) -> isize {
+        let task = self.current_task();
+        let fd_table = &task.inner.borrow().fd_table;
+        if let Some(Some(file)) = fd_table.get(fd) {
+            if file.readable() {
+                let mut buffer = unsafe {
+                    UserBuffer::new(translated_byte_buffer(task.space(), buf.into(), len))
+                };
+                return file.read(&mut buffer) as isize;
+            }
+        }
+        -1
+    }
+
+    fn sys_open(&self, ptr: VirtAddr, len: usize, flags: u32) -> isize {
+        let task = self.current_task();
+        let path = unsafe { translated_string(task.space(), ptr, len) };
+        todo!()
+    }
+
+    fn sys_close(&self, fd: usize) -> isize {
+        let task = self.current_task();
+        let fd_table = &mut task.inner.borrow_mut().fd_table;
+        if let Some(Some(_)) = fd_table.get_mut(fd).take() {
+            0
+        } else {
+            -1
+        }
+    }
 }

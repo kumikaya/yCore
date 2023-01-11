@@ -1,13 +1,13 @@
+use super::{
+    address::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum},
+    frame_allocator::{frame_alloc, FrameTracker},
+    memory_set::MemorySet,
+};
 use crate::{config::PAGE_SIZE, println};
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use anyhow::Result;
 use bitflags::bitflags;
 use riscv::register::satp;
-use anyhow::Result;
-use super::{
-    address::{PhysAddr, PhysPageNum, VPNRange, VirtAddr, VirtPageNum},
-    frame_allocator::{frame_alloc, FrameTracker},
-    memory_set::{MapArea, MapType, MemorySet},
-};
 
 bitflags! {
     pub struct PTEFlags: u8 {
@@ -91,13 +91,13 @@ impl PageTable {
         mode | self.root_ppn.0
     }
 
-    pub fn from_token(satp: usize) -> Self {
-        Self {
-            root_ppn: PhysPageNum::from(satp & ((1usize << 44) - 1)),
-            frames: Vec::new(),
-            leafs: BTreeMap::new(),
-        }
-    }
+    // pub fn from_token(satp: usize) -> Self {
+    //     Self {
+    //         root_ppn: PhysPageNum::from(satp & ((1usize << 44) - 1)),
+    //         frames: Vec::new(),
+    //         leafs: BTreeMap::new(),
+    //     }
+    // }
 
     pub fn find_pte_entry(&mut self, vpn: VirtPageNum) -> &mut PageTableEntry {
         let indexs = vpn.indexs();
@@ -143,51 +143,25 @@ impl PageTable {
         }
     }
 
-    pub fn copy_data(&self, range: VPNRange, data: &[u8]) {
-        let mut vpn_iter = range.into_iter();
-        let mut start = 0;
-        while start < data.len() {
-            let pte = self
-                .translate(vpn_iter.next().unwrap())
-                .expect("Unassigned frame for the virtual address.");
-            let end = (start + PAGE_SIZE).min(data.len());
-            let src = &data[start..end];
-            unsafe {
-                pte.ppn().as_bytes()[..src.len()].copy_from_slice(src);
-            }
-            start = end;
-        }
-    }
-
-    pub fn map_area(&mut self, map_area: &MapArea) {
-        for vpn in map_area.range {
-            let ppn = match map_area.map_type {
-                MapType::Identical => PhysPageNum::from(vpn.0),
-                MapType::Framed => {
-                    let frame = frame_alloc().unwrap();
-                    let ppn = frame.ppn;
-                    self.leafs.insert(vpn, frame);
-                    ppn
-                }
-            };
-            self.map(vpn, ppn, PTEFlags::from_bits_truncate(map_area.perm.bits()));
-        }
-    }
-
-    pub fn malloc(&mut self, vpn: VirtPageNum) -> Result<()> {
+    pub fn malloc(&mut self, vpn: VirtPageNum, flags: PTEFlags) -> Result<()> {
         if vpn.0 == 0 || self.leafs.contains_key(&vpn) {
             return Err(anyhow::Error::msg("vpn malloc error!"));
         }
         let frame = frame_alloc().unwrap();
         let ppn = frame.ppn;
         self.leafs.insert(vpn, frame);
-        self.map(vpn, ppn, PTEFlags::R | PTEFlags::W);
+        self.map(vpn, ppn, flags);
         Ok(())
     }
 
-    pub fn free(&mut self, vpn: VirtPageNum) {
-        self.unmap(vpn)
-    } 
+    pub fn free(&mut self, vpn: VirtPageNum) -> Result<()> {
+        if let Some(_) = self.leafs.remove(&vpn) {
+            self.unmap_uncheck(vpn);
+            Ok(())
+        } else {
+            Err(anyhow::Error::msg("vpn free error!"))
+        }
+    }
 
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: PTEFlags) {
         let pte_entry = self.find_pte_entry(vpn);
@@ -199,11 +173,12 @@ impl PageTable {
         *pte_entry = PageTableEntry::new(ppn, flags | PTEFlags::V)
     }
 
-    pub fn unmap(&mut self, vpn: VirtPageNum) {
+    pub fn unmap_uncheck(&mut self, vpn: VirtPageNum) {
         let pte = self.find_pte(vpn).unwrap();
-        assert!(!pte.is_valid(), "vpn {:?} is mapped before mapping", vpn);
+        // assert_ne!(pte.flags() & PTEFlags::U, PTEFlags::empty());
+        assert!(pte.is_valid(), "vpn {:X} is not mapped", vpn.0);
         *pte = PageTableEntry::empty();
-        self.leafs.remove(&vpn);
+        // self.leafs.remove(&vpn);
     }
 
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
@@ -211,7 +186,11 @@ impl PageTable {
     }
 }
 
-pub fn translated_byte_buffer(space: &MemorySet, ptr: VirtAddr, len: usize) -> Vec<*const [u8]> {
+pub unsafe fn translated_byte_buffer(
+    space: &MemorySet,
+    ptr: VirtAddr,
+    len: usize,
+) -> Vec<&'static mut [u8]> {
     let mut start = ptr;
     let end = ptr.offset(len as isize);
     let mut result = Vec::new();
@@ -219,10 +198,95 @@ pub fn translated_byte_buffer(space: &MemorySet, ptr: VirtAddr, len: usize) -> V
         let vpn = start.floor();
         let ppn = space.translate(vpn).unwrap().ppn();
         let end_va = VirtAddr::from(vpn.offset(1)).min(end);
-        let part =
-            unsafe { &ppn.as_bytes()[start.page_offset()..end_va.page_offset()] as *const [u8] };
+        let part = &mut ppn.as_bytes()[start.page_offset()..end_va.page_offset()];
         result.push(part);
         start = end_va;
     }
     result
+}
+
+pub unsafe fn translated_string(space: &MemorySet, ptr: VirtAddr, len: usize) -> String {
+    let raw_buffer = translated_byte_buffer(space, ptr, len);
+    let buffer = raw_buffer.iter().fold(Vec::<u8>::new(), |mut acc, x| {
+        acc.extend(x.iter());
+        acc
+    });
+    String::from_utf8(buffer).unwrap()
+}
+
+pub unsafe fn translated_refmut<T>(space: &MemorySet, ptr: *mut T) -> &'static mut T {
+    //println!("into translated_refmut!");
+    let va = ptr as usize;
+    space.va_translate(VirtAddr::from(va)).unwrap().as_type()
+}
+
+///Array of u8 slice that user communicate with os
+pub struct UserBuffer {
+    ///U8 vec
+    pub buffers: Vec<&'static mut [u8]>,
+}
+
+impl UserBuffer {
+    ///Create a `UserBuffer` by parameter
+    pub fn new(buffers: Vec<&'static mut [u8]>) -> Self {
+        Self { buffers }
+    }
+    ///Length of `UserBuffer`
+    pub fn len(&self) -> usize {
+        let mut total: usize = 0;
+        for b in self.buffers.iter() {
+            total += b.len();
+        }
+        total
+    }
+
+    pub fn write(&mut self, data: &[u8]) -> usize {
+        let mut data_idx: usize = 0;
+        for idx in 0..self.buffers.len() {
+            for x in &mut *self.buffers[idx] {
+                if data_idx >= data.len() {
+                    return data_idx;
+                }
+                *x = data[data_idx];
+                data_idx += 1;
+            }
+        }
+        data_idx
+    }
+}
+
+impl IntoIterator for UserBuffer {
+    type Item = *mut u8;
+    type IntoIter = UserBufferIterator;
+    fn into_iter(self) -> Self::IntoIter {
+        UserBufferIterator {
+            buffers: self.buffers,
+            current_buffer: 0,
+            current_idx: 0,
+        }
+    }
+}
+/// Iterator of `UserBuffer`
+pub struct UserBufferIterator {
+    buffers: Vec<&'static mut [u8]>,
+    current_buffer: usize,
+    current_idx: usize,
+}
+
+impl Iterator for UserBufferIterator {
+    type Item = *mut u8;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_buffer >= self.buffers.len() {
+            None
+        } else {
+            let r = &mut self.buffers[self.current_buffer][self.current_idx] as *mut _;
+            if self.current_idx + 1 == self.buffers[self.current_buffer].len() {
+                self.current_idx = 0;
+                self.current_buffer += 1;
+            } else {
+                self.current_idx += 1;
+            }
+            Some(r)
+        }
+    }
 }

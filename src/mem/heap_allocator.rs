@@ -25,7 +25,7 @@ pub fn heap_test() {
     use alloc::boxed::Box;
     use alloc::vec::Vec;
 
-    use crate::stdlib::ansi::{Colour, Color};
+    use crate::tools::ansi::{Colour, Color};
     extern "C" {
         fn sbss();
         fn ebss();

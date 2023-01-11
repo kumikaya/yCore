@@ -1,100 +1,44 @@
-pub mod loader;
-pub mod manager;
+use core::arch::{asm, global_asm};
+
+use self::task::TaskContex;
+
+pub mod app_info;
+// pub mod old_manager;
 // pub mod stack;
+pub mod pid;
+// pub mod processor;
+pub mod manager;
+pub mod processor;
 pub mod task;
-pub mod switch;
-use core::slice;
-use log::info;
-use task::*;
+pub mod tigger;
 
-use crate::{
-    stdlib::cell::STCell,
-    task::manager::TaskManager, mem::{address::{PhysAddr, VirtAddr}, memory_set::MemorySet}, trap::context::TrapContext,
-};
-
-use lazy_static::lazy_static;
-lazy_static! {
-    static ref TASK_MANAGER: STCell<TaskManager> = {
-        STCell::new(TaskManager::new())
-    };
-}
-
-pub fn get_task(uid: usize) -> Option<*const Task> {
-    TASK_MANAGER.borrow().get_task(uid)
-}
-
-pub fn current_task_trap_cx() -> *mut TrapContext {
-    unsafe {
-        TASK_MANAGER.borrow().current_task_trap_cx()
+#[naked]
+pub unsafe extern "C" fn __switch(current: *mut TaskContex, next: *mut TaskContex) {
+    asm! {r"
+        .altmacro
+        .macro SAVE_S n
+            sd s\n, (\n+2)*8(a0)
+        .endm
+        .macro STORE_S n
+            ld s\n, (\n+2)*8(a1)
+        .endm
+        sd sp, 8(a0)
+        sd ra, 0(a0)
+        .set n, 0
+        .rept 12
+            SAVE_S %n
+            .set n, n + 1
+        .endr
+        ld ra, 0(a1)
+        .set n, 0
+        .rept 12
+            STORE_S %n
+            .set n, n + 1
+        .endr
+        ld sp, 8(a1)
+        ret
+        ",
+        options(noreturn)
     }
 }
 
-pub fn current_task() -> *mut Task {
-    TASK_MANAGER.borrow().current_task()
-}
-
-pub fn user_space() -> &'static MemorySet {
-    unsafe {
-        &(*current_task()).memory_set
-    }
-}
-
-pub fn user_space_mut() -> &'static mut MemorySet {
-    unsafe {
-        &mut (*current_task()).memory_set
-    }
-}
-
-
-pub fn user_addr_translate(va: VirtAddr) -> Option<PhysAddr> {
-    user_space().va_translate(va)
-}
-
-pub fn user_token() -> usize {
-    user_space().token()
-}
-
-fn mark_current_task(state: TaskStatus) {
-    TASK_MANAGER.borrow().mark_current_task(state);
-}
-
-
-// 初始化读取App
-pub fn init() {
-    let (nums, app_starts) = loader::get_apps();
-    let task_manager = &mut TASK_MANAGER.borrow_mut();
-    for i in 0..nums {
-        let start = app_starts[i];
-        let len = app_starts[i + 1] - start;
-        let elf = xmas_elf::ElfFile::new(
-            unsafe {
-                slice::from_raw_parts(start as *const u8, len)
-            }
-        ).unwrap();
-        task_manager.push_task(Task::from_elf(elf));
-    }
-}
-
-#[inline]
-pub fn raw_yield(state: TaskStatus) {
-    mark_current_task(state);
-    TASK_MANAGER.borrow().switch_next();
-}
-
-pub fn exit_and_run_next() -> ! {
-    info!("exit app.");
-    mark_current_task(TaskStatus::Exited);
-    TASK_MANAGER.borrow().go_next_app()
-}
-
-pub fn run_first_app() -> ! {
-    TASK_MANAGER.borrow().go_next_app()
-}
-
-pub fn block_and_run_next() {
-    raw_yield(TaskStatus::Block);
-}
-
-pub fn to_yield() {
-    raw_yield(TaskStatus::Ready)
-}

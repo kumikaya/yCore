@@ -1,7 +1,7 @@
 # Building
 TARGET := riscv64gc-unknown-none-elf
 MODE := debug
-KERNEL_NAME = yife-os
+KERNEL_NAME = y_core
 KERNEL_ELF = target/$(TARGET)/$(MODE)/$(KERNEL_NAME)
 KERNEL_BIN = $(KERNEL_ELF).bin
 FEATURES = 
@@ -34,9 +34,11 @@ run_only:
       -nographic \
       -bios $(BOOTLOADER) \
       -device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_ADDR) \
-	  $(QEMU_ARGS) \
+	  -drive file=../user/target/riscv64gc-unknown-none-elf/release/fs.img,if=none,format=raw,id=x0 \
+      -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
+	  -smp 2,cores=2,threads=1,sockets=1 \
+	  $(QEMU_ARGS)
 
-# -smp 2,cores=2,threads=1,sockets=1 \
 
 run: $(KERNEL_BIN) run_only
 

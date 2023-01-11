@@ -3,7 +3,7 @@ use log::{self, Level, LevelFilter, Log, Metadata, Record};
 
 use crate::{
     println,
-    stdlib::ansi::{Color, Colour},
+    tools::ansi::{Color, Colour},
 };
 // use crate::sync::SpinNoIrqLock as Mutex;
 

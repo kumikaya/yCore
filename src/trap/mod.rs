@@ -1,6 +1,6 @@
 pub mod context;
 
-use core::arch::asm;
+use core::arch::{asm, global_asm};
 
 use log::warn;
 use riscv::register::{
@@ -11,118 +11,145 @@ use riscv::register::{
 
 use crate::{
     config::{TRAMPOLINE, TRAP_CONTEXT},
-    mem::address::VirtAddr,
-    stdlib::ansi::Colour,
-    syscall::syscall,
-    task::{
-        current_task_trap_cx, exit_and_run_next, get_task, to_yield,
-        user_token,
-    },
+    kernel::{Schedule, KERNEL},
+    syscall::Syscall,
+    task::processor::Hart,
     timer::set_next_trigger,
 };
 
-use self::context::TrapContext;
-
+#[inline]
 fn set_user_trap_entry() {
     unsafe {
-        stvec::write(TRAMPOLINE.0, TrapMode::Direct);
+        stvec::write(TRAMPOLINE.into(), TrapMode::Direct);
     }
 }
 
+#[inline]
 fn set_kernel_trap_entry() {
     unsafe {
-        stvec::write(__kernel_trap_entry as usize, TrapMode::Direct);
+        stvec::write(kernel_trap_entry as usize, TrapMode::Direct);
     }
 }
 
-pub fn get_trap(uid: usize) -> &'static TrapContext {
-    let task = get_task(1001).unwrap();
-    unsafe { &*((*task).trap_cx.0 as *const TrapContext) }
-}
-
-pub unsafe fn trap_handler() -> ! {
+#[allow(unused)]
+/// 该函数内的强引用可能需要手动释放
+pub unsafe extern "C" fn trap_handler(hartid: usize) -> ! {
     set_kernel_trap_entry();
     let status = scause::read();
-    let stval = stval::read();
-    let cx = &mut *current_task_trap_cx();
+    let env = &KERNEL.processor;
+    // let cx = KERNEL.current_task().trap_context();
+    let cx = env.current_task().trap_context();
     match status.cause() {
         Trap::Exception(Exception::UserEnvCall) => {
             cx.sepc += 4;
-            cx.regs[10] = syscall(cx.regs[17], cx.regs[10], cx.regs[11], cx.regs[12]) as usize;
+            let result = env.syscall(cx.syscall_id(), cx.syscall_args());
+            // let result = syscall(cx.syscall_id(), cx.syscall_args());
+            cx.set_result(result as usize);
         }
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
             set_next_trigger();
-            to_yield();
+            env._yield();
+            // _yield();
         }
         Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
-            warn!("PageFault[{:#x}] in application, kernel killed it.", stval::read());
-            exit_and_run_next();
+            warn!("PageFault[{:#x}]", stval::read());
+            env.exit_current(-1);
+            // exit_current(-1);
         }
         Trap::Exception(Exception::IllegalInstruction) => {
-            warn!("IllegalInstruction[{:#x}] in application, kernel killed it.", stval::read());
-            exit_and_run_next();
+            warn!("IllegalInstruction[{:#x}]", stval::read());
+            env.exit_current(-1);
+            // exit_current(-1);
         }
-        _ => {
-            panic!(
-                "Unsupported trap {:?}, stval = {:#x}!",
-                status.cause(),
-                stval
-            );
+        trap => {
+            panic!("Unsupported trap {:?}, stval = {:#x}!", trap, stval::read());
         }
     }
-    unsafe {
-        user_trap_return();
-    }
+    let satp = env.current_task().space().token();
+    unsafe { user_trap_return(satp) }
 }
 
 #[repr(align(4))]
-pub fn __kernel_trap_entry() {
+pub fn kernel_trap_entry() {
     panic!("a trap from kernel!");
 }
+
+// 定义从栈上保存或恢复寄存器的汇编宏
+global_asm! {r"
+    .macro LOAD reg, idx, offset
+        ld \reg\idx, \offset*8(sp)
+    .endm
+    .macro LOADS reg, size, offset
+        .set i, 0
+        .rept \size
+            LOAD \reg, %i, %(i+\offset)
+            .set i, i+1
+        .endr
+    .endm
+
+    .macro STORE reg, idx, offset
+        sd \reg\idx, \offset*8(sp)
+    .endm
+    .macro STORES reg, size, offset
+        .set i, 0
+        .rept \size
+            STORE \reg, %i, %(i+\offset)
+            .set i, i+1
+        .endr
+    .endm
+"}
 
 #[naked]
 #[link_section = ".text.trampoline.entry"]
 pub unsafe extern "C" fn user_trap_entry() {
     asm! {r"
         .altmacro
-        .macro SAVE_GP n
-            sd x\n, \n*8(sp)
-        .endm
-        ",
-        // 保存上下文
-        "
+        # 保存sp寄存器，同时获取 `TrapContext` 用户空间指针
         csrrw sp, sscratch, sp
-        sd ra, 1*8(sp)
-        sd gp, 3*8(sp)
-        .set n, 5
-        .rept 27
-            SAVE_GP %n
-            .set n, n+1
-        .endr",
-        "
+        sd ra, 0*8(sp)
+        sd gp, 2*8(sp)
+        STORES a, 8, 4
+        STORES s, 12, 12
+        STORES t, 7, 24
         csrr t0, sstatus
         csrr t1, sepc
-        sd t0, 32*8(sp)
-        sd t1, 33*8(sp)
+        sd t0, 31*8(sp)
+        sd t1, 32*8(sp)
         csrr t2, sscratch
-        sd t2, 2*8(sp)",
-        // 切换到内核地址空间
-        "
-        ld t0, 35*8(sp)
-        ld t1, 36*8(sp)
-        ld sp, 34*8(sp)
+        sd t2, 1*8(sp)
+        ld t0, 34*8(sp)
+        ld t1, 35*8(sp)
+        # hartid 作为参数
+        ld a0, 36*8(sp)
+        # 切换到内核栈
+        ld sp, 33*8(sp)
+        # 切换到内核空间
         csrw satp, t0
         sfence.vma
+        # 跳转到 trap_handler
         jr t1",
         options(noreturn)
     }
 }
 
-pub unsafe fn user_trap_return() -> ! {
+#[naked]
+pub unsafe extern "C" fn init_app_trap_return() {
+    asm! {r"
+        mv a0, s0
+        mv s0, zero
+        j {trap_return}
+        ",
+        trap_return = sym user_trap_return,
+        options(noreturn)
+    }
+}
+
+#[inline]
+pub unsafe fn user_trap_return(satp: usize) -> ! {
     set_user_trap_entry();
-    let satp = user_token();
-    let restore = (user_restore as usize - user_trap_entry as usize) + TRAMPOLINE.0;
-    let trap_context = TRAP_CONTEXT.0;
+    // let satp = KERNEL.user_space().token();
+    let restore = (user_restore as usize - user_trap_entry as usize) + usize::from(TRAMPOLINE);
+    let trap_context: usize = TRAP_CONTEXT.into();
     asm! {
         "
         jr {restore}",
@@ -138,30 +165,22 @@ pub unsafe fn user_trap_return() -> ! {
 pub unsafe extern "C" fn user_restore(va_cx: usize, satp: usize) {
     asm! {r"
         .altmacro
-        .macro LOAD_GP n
-            ld x\n, \n*8(sp)
-        .endm
-        ",
-        // 切换到用户虚拟地址空间，恢复寄存器
-        "
+        # 切换到用户空间
         csrw satp, a1
         sfence.vma
+        # 保存 `TrapContext` 用户空间指针到 sscratch 寄存器
         csrw sscratch, a0
         mv sp, a0
-        ld t0, 32*8(sp)
-        ld t1, 33*8(sp)
+        ld t0, 31*8(sp)
+        ld t1, 32*8(sp)
         csrw sstatus, t0
         csrw sepc, t1
-        ld ra, 1*8(sp)
-        ld gp, 3*8(sp)",
-        // restore x5~x31
-        "
-        .set n, 5
-        .rept 27
-            LOAD_GP %n
-            .set n, n+1
-        .endr
-        ld sp, 2*8(sp)
+        ld ra, 0*8(sp)
+        ld gp, 2*8(sp)
+        LOADS a, 8, 4
+        LOADS s, 12, 12
+        LOADS t, 7, 24
+        ld sp, 1*8(sp)
         sret
         ",
         options(noreturn)
@@ -170,6 +189,7 @@ pub unsafe extern "C" fn user_restore(va_cx: usize, satp: usize) {
 
 pub fn init() {
     set_user_trap_entry();
+    enable_timer_interrupt();
 }
 
 pub fn enable_timer_interrupt() {
