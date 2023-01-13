@@ -10,11 +10,11 @@ use super::{manager::TaskManager, task::TaskControlBlock};
 pub struct Processor {
     hartid: usize,
     current: STCell<Option<Arc<TaskControlBlock>>>,
-    task_manager: Arc<STRefCell<TaskManager>>,
+    task_manager: Arc<TaskManager>,
 }
 
 impl Processor {
-    pub fn new(hartid: usize, task_maneger: Arc<STRefCell<TaskManager>>) -> Self {
+    pub fn new(hartid: usize, task_maneger: Arc<TaskManager>) -> Self {
         Self {
             hartid,
             current: STCell::new(None),
@@ -44,7 +44,7 @@ impl Hart for Processor {
     }
 
     fn entrap_task(&self) -> ! {
-        let next_task = self.task_manager.borrow_mut().pop().unwrap();
+        let next_task = self.task_manager.pop_spin();
         let next = next_task.task_context();
         self.set_current(next_task);
         static mut HOLE: TaskContex = TaskContex::default();
@@ -59,10 +59,8 @@ impl Hart for Processor {
         let current_task = self.current.take().unwrap();
         let current = current_task.task_context();
 
-        let mut task_manager = self.task_manager.borrow_mut();
-        task_manager.push(current_task);
-        let next_task = task_manager.pop().unwrap();
-        drop(task_manager);
+        self.task_manager.push(current_task);
+        let next_task = self.task_manager.pop_spin();
 
         let next = next_task.task_context();
         self.set_current(next_task);

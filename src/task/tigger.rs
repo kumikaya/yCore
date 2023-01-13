@@ -51,7 +51,7 @@ impl Future for TaskWaiter {
     type Output = ();
 
     fn poll(&self) -> Poll<Self::Output> {
-        match self.task.inner.borrow().get_state() {
+        match *self.task.state.lock() {
             TaskStatus::Exited(_) => Poll::Ready(()),
             _ => Poll::Pending,
         }
@@ -72,7 +72,7 @@ impl Future for ChildrenWaiter {
     type Output = ();
 
     fn poll(&self) -> Poll<Self::Output> {
-        let children = &self.parent.inner.borrow_mut().children;
+        let children = &self.parent.tree.lock().children;
         if children.iter().any(|task| task.exit_code().is_some()) || children.is_empty() {
             Poll::Ready(())
         } else {

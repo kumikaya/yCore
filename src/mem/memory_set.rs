@@ -194,6 +194,7 @@ impl MemorySet {
         self.page_table.translate(vpn)
     }
 
+    #[inline]
     pub fn token(&self) -> usize {
         self.page_table.token()
     }
@@ -257,9 +258,10 @@ impl MemorySet {
         
     }
 
+    /// 返回memory_set、入口地址、用户栈地址
     pub fn from_elf(elf: &ElfFile) -> (Self, usize, usize) {
-        let mut result = Self::new_bare();
-        result.map_trampoline();
+        let mut memory_set = Self::new_bare();
+        memory_set.map_trampoline();
         let header = elf.header;
         let entry_point = header.pt2.entry_point() as usize;
         let magic = header.pt1.magic;
@@ -277,16 +279,16 @@ impl MemorySet {
                     if vpn_end > program_vpn_end {
                         program_vpn_end = vpn_end;
                     }
-                    result.push(map_area, Some(data));
+                    memory_set.push(map_area, Some(data));
                 },
                 _ => (),
             }
         }
-        assert_ne!(program_vpn_end.0, 0, "empty program ");
+        assert_ne!(program_vpn_end.0, 0, "empty program");
         let user_stack_top = VirtAddr::from(program_vpn_end) + VirtAddr::from(GUARD_PAGE_SIZE);
         let user_stack_bottom = user_stack_top + VirtAddr::from(USER_STACK_SIZE);
         // maping user stack
-        result.push(
+        memory_set.push(
             MapArea::new(
                 user_stack_top,
                 user_stack_bottom,
@@ -296,7 +298,7 @@ impl MemorySet {
             None,
         );
         // map TrapContext
-        result.push(
+        memory_set.push(
             MapArea::new(
                 TRAP_CONTEXT,
                 TRAP_CONTEXT.offset(1),
@@ -305,7 +307,7 @@ impl MemorySet {
             ),
             None,
         );
-        (result, entry_point, user_stack_bottom.into())
+        (memory_set, entry_point, user_stack_bottom.into())
     }
 
     pub fn build_kernel_space() -> Self {

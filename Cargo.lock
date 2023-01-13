@@ -247,6 +247,7 @@ dependencies = [
  "log",
  "riscv",
  "sbi-rt",
+ "spin 0.9.4",
  "virtio-drivers",
  "xmas-elf",
 ]

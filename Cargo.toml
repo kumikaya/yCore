@@ -18,6 +18,7 @@ anyhow = { version = "1.0", default-features = false }
 easy-fs = { path = "../easy-fs" }
 riscv = { path = "../riscv" }
 sbi-rt = "0.0.2"
+spin = "0.9"
 # riscv = { path = "../rcore-riscv", features = ["inline-asm"] }
 # futures = { version = "0.3", default-features = false , features = ["alloc"]}
 [features]

@@ -41,9 +41,6 @@ pub struct RegFile {
 // }
 
 impl TrapContext {
-    // pub fn set_sp(&mut self, usp: usize) {
-    //     self.x[2] = usp;
-    // }
     pub fn init(entry: usize, usp: usize, ksp: usize, satp: usize) -> Self {
         // `spp` 保存发生中断前的特权级
         // unsafe { set_spp(SPP::User) };
@@ -63,7 +60,7 @@ impl TrapContext {
             ksp,
             satp,
             trap_handler: trap_handler as usize,
-            hartid: 1234,
+            hartid: 0,
         }
     }
 

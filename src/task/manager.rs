@@ -2,41 +2,55 @@ use core::task::Poll;
 
 use super::task::{TaskControlBlock, TaskStatus};
 use alloc::{collections::VecDeque, sync::Arc};
+use spin::Mutex;
 
 pub struct TaskManager {
-    queue: VecDeque<Arc<TaskControlBlock>>,
+    queue: Mutex<VecDeque<Arc<TaskControlBlock>>>,
 }
 
 impl TaskManager {
     pub fn new() -> Self {
         Self {
-            queue: VecDeque::new(),
+            queue: Mutex::new(VecDeque::new()),
         }
     }
-    pub fn push(&mut self, task: Arc<TaskControlBlock>) {
-        self.queue.push_back(task);
+    #[inline]
+    pub fn push(&self, task: Arc<TaskControlBlock>) {
+        self.queue.lock().push_back(task);
     }
-    pub fn pop(&mut self) -> Option<Arc<TaskControlBlock>> {
-        while let Some(task) = self.queue.pop_front() {
-            let mut inner = task.inner.borrow_mut();
-            match inner.get_state() {
+    #[inline]
+    pub fn pop(&self) -> Option<Arc<TaskControlBlock>> {
+        let mut queue = self.queue.lock();
+        while let Some(task) = queue.pop_front() {
+            // let mut inner = task.inner.borrow_mut();
+            let mut state = task.state.lock();
+            match &*state {
                 TaskStatus::Ready => {
-                    drop(inner);
+                    drop(state);
                     return Some(task);
                 }
                 TaskStatus::Blocked(tigger) => {
                     match tigger.poll() {
                         Poll::Ready(_) => {
-                            inner.set_state(TaskStatus::Ready);
+                            *state = TaskStatus::Ready;
                         }
                         Poll::Pending => (),
                     }
-                    drop(inner);
-                    self.queue.push_back(task);
+                    drop(state);
+                    queue.push_back(task);
                 }
                 _ => unreachable!(),
             }
         }
         None
+    }
+
+    #[inline]
+    pub fn pop_spin(&self) -> Arc<TaskControlBlock> {
+        loop {
+            if let Some(task) = self.pop() {
+                break task;
+            }
+        }
     }
 }

@@ -54,12 +54,3 @@ pub fn hart_start(hartid: usize, start_addr: usize, opaque: usize) {
     sbi_rt::hart_start(hartid, start_addr, opaque);
 }
 
-pub fn hart_init() {
-    for id in 0..8 {
-        let ret = sbi_rt::hart_get_status(id);
-        println!("id[{}], val: {}, err: {}", id, ret.value, ret.error);
-    }
-    let ret = sbi_rt::hart_start(0, _start as usize, 0);
-    let ret = sbi_rt::hart_start(1, _start as usize, 0);
-    info!("val: {}, err: {}", ret.value, ret.error);
-}

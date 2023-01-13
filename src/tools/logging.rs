@@ -1,3 +1,4 @@
+use alloc::format;
 // use lazy_static::lazy_static;
 use log::{self, Level, LevelFilter, Log, Metadata, Record};
 

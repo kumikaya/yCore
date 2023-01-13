@@ -1,4 +1,4 @@
-use alloc::{vec::Vec, sync::Arc};
+use alloc::sync::Arc;
 use crate::mem::page_table::UserBuffer;
 
 pub mod stdio;

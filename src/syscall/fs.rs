@@ -6,9 +6,6 @@ use crate::{
     task::processor::Hart,
 };
 
-// const FD_STDIN: usize = 0;
-// const FD_STDOUT: usize = 1;
-
 pub(super) trait FS {
     fn sys_write(&self, fd: usize, buf: usize, len: usize) -> isize;
     fn sys_read(&self, fd: usize, buf: usize, len: usize) -> isize;
@@ -19,7 +16,7 @@ pub(super) trait FS {
 impl<T: Hart> FS for T {
     fn sys_write(&self, fd: usize, buf: usize, len: usize) -> isize {
         let task = self.current_task();
-        let fd_table = &task.inner.borrow().fd_table;
+        let fd_table = &task.context.borrow().fd_table;
         if let Some(Some(file)) = fd_table.get(fd) {
             if file.writable() {
                 let buffer = unsafe {
@@ -33,7 +30,7 @@ impl<T: Hart> FS for T {
 
     fn sys_read(&self, fd: usize, buf: usize, len: usize) -> isize {
         let task = self.current_task();
-        let fd_table = &task.inner.borrow().fd_table;
+        let fd_table = &task.context.borrow().fd_table;
         if let Some(Some(file)) = fd_table.get(fd) {
             if file.readable() {
                 let mut buffer = unsafe {
@@ -53,7 +50,7 @@ impl<T: Hart> FS for T {
 
     fn sys_close(&self, fd: usize) -> isize {
         let task = self.current_task();
-        let fd_table = &mut task.inner.borrow_mut().fd_table;
+        let fd_table = &mut task.context.borrow_mut().fd_table;
         if let Some(Some(_)) = fd_table.get_mut(fd).take() {
             0
         } else {

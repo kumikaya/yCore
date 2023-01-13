@@ -6,7 +6,6 @@ use crate::{
         address::VirtAddr,
         page_table::{translated_refmut, translated_string},
     },
-    println,
     task::{
         app_info::get_app_data,
         processor::Hart,
@@ -56,7 +55,7 @@ impl<T: Hart> Process for T {
         let waitee_task: Arc<TaskControlBlock>;
         if pid == -1 {
             self.blocking_current(ChildrenWaiter::new(current_task.clone()));
-            let children = &current_task.inner.borrow_mut().children;
+            let children = &current_task.tree.lock().children;
             if children.is_empty() {
                 return -1;
             }
@@ -73,7 +72,7 @@ impl<T: Hart> Process for T {
             return -1;
         }
         let code = waitee_task.exit_code().unwrap();
-        current_task.inner.borrow_mut().children.remove(idx);
+        current_task.tree.lock().children.remove(idx);
         unsafe {
             *translated_refmut(current_task.space(), exit_code_ptr) = code;
         }

@@ -14,7 +14,7 @@ use crate::{
     kernel::{Schedule, KERNEL},
     syscall::Syscall,
     task::processor::Hart,
-    timer::set_next_trigger,
+    timer::set_next_trigger, println, print,
 };
 
 #[inline]
@@ -35,37 +35,34 @@ fn set_kernel_trap_entry() {
 /// 该函数内的强引用可能需要手动释放
 pub unsafe extern "C" fn trap_handler(hartid: usize) -> ! {
     set_kernel_trap_entry();
+    let env = KERNEL.get_processor(hartid);
+    let task = env.current_task();
+    let cx = task.trap_context();
+    let satp = task.space().token();
     let status = scause::read();
-    let env = &KERNEL.processor;
-    // let cx = KERNEL.current_task().trap_context();
-    let cx = env.current_task().trap_context();
+    drop(task);
     match status.cause() {
         Trap::Exception(Exception::UserEnvCall) => {
             cx.sepc += 4;
             let result = env.syscall(cx.syscall_id(), cx.syscall_args());
-            // let result = syscall(cx.syscall_id(), cx.syscall_args());
             cx.set_result(result as usize);
         }
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
             set_next_trigger();
             env._yield();
-            // _yield();
         }
         Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
             warn!("PageFault[{:#x}]", stval::read());
             env.exit_current(-1);
-            // exit_current(-1);
         }
         Trap::Exception(Exception::IllegalInstruction) => {
             warn!("IllegalInstruction[{:#x}]", stval::read());
             env.exit_current(-1);
-            // exit_current(-1);
         }
         trap => {
             panic!("Unsupported trap {:?}, stval = {:#x}!", trap, stval::read());
         }
     }
-    let satp = env.current_task().space().token();
     unsafe { user_trap_return(satp) }
 }
 

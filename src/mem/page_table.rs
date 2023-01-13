@@ -86,6 +86,7 @@ impl PageTable {
         }
     }
 
+    #[inline]
     pub fn token(&self) -> usize {
         let mode = (satp::Mode::Sv39 as usize) << 60;
         mode | self.root_ppn.0

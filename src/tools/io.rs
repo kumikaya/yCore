@@ -1,5 +1,5 @@
 use crate::sbi;
-use core::fmt::{self, Write};
+use core::{fmt::{self, Write}, sync::atomic::{AtomicBool, Ordering}};
 
 struct Stdout;
 
@@ -11,7 +11,7 @@ impl Write for Stdout {
         Ok(())
     }
 }
-#[allow(unused)]
+
 pub fn print(args: fmt::Arguments) {
     Stdout.write_fmt(args).unwrap();
 }
