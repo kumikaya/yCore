@@ -6,58 +6,70 @@ use log::warn;
 use riscv::register::{
     mtvec::TrapMode,
     scause::{self, Exception, Interrupt, Trap},
-    sie, sstatus, stval, stvec,
+    sie,
+    stval, stvec, sstatus,
 };
 
 use crate::{
     config::{TRAMPOLINE, TRAP_CONTEXT},
-    kernel::{Schedule, KERNEL},
     syscall::Syscall,
-    task::processor::Hart,
-    timer::set_next_trigger, println, print,
+    task::{processor::{Hart, Schedule}, scheduler::get_processor},
+    timer::set_next_trigger,
 };
+
 
 #[inline]
 fn set_user_trap_entry() {
     unsafe {
-        stvec::write(TRAMPOLINE.into(), TrapMode::Direct);
+        stvec::write(TRAMPOLINE, TrapMode::Direct);
     }
 }
 
 #[inline]
-fn set_kernel_trap_entry() {
+pub fn set_kernel_trap_entry() {
     unsafe {
         stvec::write(kernel_trap_entry as usize, TrapMode::Direct);
     }
 }
 
+
+pub fn init() {
+    unsafe {
+        sstatus::clear_sie();
+        sie::set_stimer();
+    }
+    set_next_trigger();
+}
+
+
+
 #[allow(unused)]
 /// 该函数内的强引用可能需要手动释放
 pub unsafe extern "C" fn trap_handler(hartid: usize) -> ! {
     set_kernel_trap_entry();
-    let env = KERNEL.get_processor(hartid);
-    let task = env.current_task();
+    let proc = get_processor(hartid);
+    let task = proc.current_task();
     let cx = task.trap_context();
     let satp = task.space().token();
-    let status = scause::read();
     drop(task);
+    let status = scause::read();
     match status.cause() {
         Trap::Exception(Exception::UserEnvCall) => {
             cx.sepc += 4;
-            let result = env.syscall(cx.syscall_id(), cx.syscall_args());
+            let result = proc.syscall(cx.syscall_id(), cx.syscall_args());
             cx.set_result(result as usize);
         }
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
+            proc.yield_();
             set_next_trigger();
-            env._yield();
         }
         Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
             warn!("PageFault[{:#x}]", stval::read());
-            env.exit_current(-1);
+            proc.exit_current(-1);
         }
         Trap::Exception(Exception::IllegalInstruction) => {
             warn!("IllegalInstruction[{:#x}]", stval::read());
-            env.exit_current(-1);
+            proc.exit_current(-1);
         }
         trap => {
             panic!("Unsupported trap {:?}, stval = {:#x}!", trap, stval::read());
@@ -67,8 +79,11 @@ pub unsafe extern "C" fn trap_handler(hartid: usize) -> ! {
 }
 
 #[repr(align(4))]
-pub fn kernel_trap_entry() {
-    panic!("a trap from kernel!");
+pub unsafe fn kernel_trap_entry() {
+    use riscv::register::sepc;
+    loop {}
+    println!("stval = {:#x}, sepc = {:#x}", stval::read(), sepc::read());
+    panic!("a trap {:?} from kernel!", scause::read().cause());
 }
 
 // 定义从栈上保存或恢复寄存器的汇编宏
@@ -144,30 +159,28 @@ pub unsafe extern "C" fn init_app_trap_return() {
 #[inline]
 pub unsafe fn user_trap_return(satp: usize) -> ! {
     set_user_trap_entry();
-    // let satp = KERNEL.user_space().token();
-    let restore = (user_restore as usize - user_trap_entry as usize) + usize::from(TRAMPOLINE);
-    let trap_context: usize = TRAP_CONTEXT.into();
-    asm! {
-        "
+    let restore = (user_restore as usize - user_trap_entry as usize) + TRAMPOLINE;
+    asm! {r"
+        fence.i
         jr {restore}",
         restore = in(reg) restore,
-        in("a0") trap_context,
-        in("a1") satp,
+        in("a0") satp,
+        in("a1") TRAP_CONTEXT,
         options(noreturn)
     }
 }
 
 #[naked]
 #[link_section = ".text.trampoline"]
-pub unsafe extern "C" fn user_restore(va_cx: usize, satp: usize) {
+pub unsafe extern "C" fn user_restore(satp: usize, va_cx: usize) {
     asm! {r"
         .altmacro
         # 切换到用户空间
-        csrw satp, a1
+        csrw satp, a0
         sfence.vma
         # 保存 `TrapContext` 用户空间指针到 sscratch 寄存器
-        csrw sscratch, a0
-        mv sp, a0
+        csrw sscratch, a1
+        mv sp, a1
         ld t0, 31*8(sp)
         ld t1, 32*8(sp)
         csrw sstatus, t0
@@ -182,17 +195,4 @@ pub unsafe extern "C" fn user_restore(va_cx: usize, satp: usize) {
         ",
         options(noreturn)
     }
-}
-
-pub fn init() {
-    set_user_trap_entry();
-    enable_timer_interrupt();
-}
-
-pub fn enable_timer_interrupt() {
-    unsafe {
-        sstatus::clear_sie();
-        sie::set_stimer();
-    }
-    set_next_trigger();
 }

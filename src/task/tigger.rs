@@ -6,7 +6,7 @@ use crate::timer::get_time_ms;
 
 use super::task::{TaskControlBlock, TaskStatus};
 
-pub type FutureBox = Box<dyn Future<Output = ()> + Sync + Send>;
+pub type FutureBox = Box<dyn Future<Output = ()> + Sync + Send + 'static>;
 
 pub trait Future {
     type Output;
@@ -51,8 +51,8 @@ impl Future for TaskWaiter {
     type Output = ();
 
     fn poll(&self) -> Poll<Self::Output> {
-        match *self.task.state.lock() {
-            TaskStatus::Exited(_) => Poll::Ready(()),
+        match self.task.exit_code() {
+            Some(_) => Poll::Ready(()),
             _ => Poll::Pending,
         }
     }
@@ -73,7 +73,7 @@ impl Future for ChildrenWaiter {
 
     fn poll(&self) -> Poll<Self::Output> {
         let children = &self.parent.tree.lock().children;
-        if children.iter().any(|task| task.exit_code().is_some()) || children.is_empty() {
+        if children.iter().any(|child| child.exit_code().is_some()) || children.is_empty() {
             Poll::Ready(())
         } else {
             Poll::Pending

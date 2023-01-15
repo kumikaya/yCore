@@ -1,19 +1,22 @@
 use core::arch::asm;
 
-use self::task::TaskContex;
+use log::info;
 
-pub mod app_info;
-// pub mod old_manager;
-// pub mod stack;
+use crate::{
+    fs::inode::open_app,
+    task::{processor::Hart, scheduler::get_processor},
+};
+
+use self::{scheduler::add_task, task::TaskContext};
+
 pub mod pid;
-// pub mod processor;
-pub mod manager;
 pub mod processor;
+pub mod scheduler;
 pub mod task;
 pub mod tigger;
 
 #[naked]
-pub unsafe extern "C" fn __switch(current: *mut TaskContex, next: *mut TaskContex) {
+pub unsafe extern "C" fn __switch(current: *mut TaskContext, next: *mut TaskContext) {
     asm! {r"
         .altmacro
         .macro SAVE_S n
@@ -32,8 +35,8 @@ pub unsafe extern "C" fn __switch(current: *mut TaskContex, next: *mut TaskConte
         ld ra, 0(a1)
         .set n, 0
         .rept 12
-            STORE_S %n
-            .set n, n + 1
+        STORE_S %n
+        .set n, n + 1
         .endr
         ld sp, 8(a1)
         ret
@@ -42,3 +45,14 @@ pub unsafe extern "C" fn __switch(current: *mut TaskContex, next: *mut TaskConte
     }
 }
 
+pub fn add_initproc() {
+    // 添加初始程序
+    let initproc = open_app("initproc", None).unwrap();
+    add_task(initproc);
+}
+
+pub fn entrap_task(hartid: usize) -> ! {
+    // info!("hart {} into task", hartid);
+    get_processor(hartid).entrap_task()
+    // KERNEL.processors[hartid].entrap_task()
+}

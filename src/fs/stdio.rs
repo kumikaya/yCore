@@ -1,5 +1,5 @@
 use super::File;
-use crate::{mem::page_table::UserBuffer, print, sbi::console_getchar};
+use crate::{mm::page_table::BufferHandle, print, sbi::console_getchar};
 
 pub struct Stdin;
 
@@ -10,7 +10,7 @@ impl File for Stdin {
     fn writable(&self) -> bool {
         false
     }
-    fn read(&self, buffer: &mut UserBuffer) -> usize {
+    fn read(&self, mut buffer_handle: BufferHandle) -> usize {
         let ch: u8 = loop {
             let c = console_getchar();
             if c == 0 {
@@ -19,10 +19,10 @@ impl File for Stdin {
                 break c as u8;
             }
         };
-        buffer.write(&[ch]);
+        buffer_handle.write(&[ch]);
         1
     }
-    fn write(&self, _buffer: &UserBuffer) -> usize {
+    fn write(&self, _buffer_handle: BufferHandle) -> usize {
         panic!("Can not write to stdin!");
     }
 }
@@ -38,14 +38,14 @@ impl File for Stdout {
         true
     }
 
-    fn read(&self, _buffer: &mut UserBuffer) -> usize {
+    fn read(&self, _buffer_handle: BufferHandle) -> usize {
         panic!("Cannot read from stdout!");
     }
 
-    fn write(&self, buffer: &UserBuffer) -> usize {
-        for buffer in buffer.buffers.iter() {
+    fn write(&self, buffer_handle: BufferHandle) -> usize {
+        for buffer in buffer_handle.buffers.iter() {
             print!("{}", core::str::from_utf8(*buffer).unwrap());
         }
-        buffer.len()
+        buffer_handle.len()
     }
 }

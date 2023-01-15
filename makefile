@@ -9,6 +9,8 @@ FEATURES =
 QEMU_ARGS := 
 CARGO_ARGS :=
 gdb = true
+FS_IMG := ../user/target/$(TARGET)/$(MODE)/fs.img
+APPS := ../user/src/bin/*
 # Log level: error | warn | info
 export LOG ?= info
 
@@ -17,6 +19,14 @@ test_build:
 
 build:
 	@cargo build --features "$(FEATURES)"
+
+$(APPS):
+
+fs-img: $(APPS)
+	@cd ../user && make build
+	@rm -f $(FS_IMG)
+	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/$(TARGET)/release/
+
 
 $(KERNEL_BIN): build
 	@rust-objcopy --strip-all $(KERNEL_ELF) -O binary $@
@@ -30,6 +40,7 @@ BOOTLOADER := ../bootloader/$(SBI)-$(BOARD).bin
 
 run_only:
 	@qemu-system-riscv64 \
+	  -M 128m \
       -machine virt \
       -nographic \
       -bios $(BOOTLOADER) \

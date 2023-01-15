@@ -1,14 +1,13 @@
 use crate::{
-    kernel::Schedule,
-    task::{processor::Hart, tigger::Timer},
+    task::{processor::{Hart, Schedule}, tigger::Timer},
     timer::get_time_ms,
 };
 
-pub(super) trait Sync {
+pub(super) trait SysSync {
     fn sys_sleep(&self, ms: usize) -> isize;
 }
 
-impl<T: Hart> Sync for T {
+impl<T: Hart> SysSync for T {
     fn sys_sleep(&self, ms: usize) -> isize {
         let time = get_time_ms();
         self.blocking_current(Timer::new(ms));

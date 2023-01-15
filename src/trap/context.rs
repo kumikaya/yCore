@@ -28,28 +28,12 @@ pub struct RegFile {
     pub t: [usize; 7],  // 24
 }
 
-// const REG_NAME: &[&'static str] = &["none", "ra", "sp", "gp"];
-
-// impl Display for TrapContext {
-//     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-//         write!(f, "TrapContext: {{")?;
-//         for (idx, &name) in REG_NAME.iter().enumerate() {
-//             write!(f, "{}: {:#X}, ", name, self.x[idx])?;
-//         }
-//         write!(f, "sstatus: {:#X}, sepc: {:#X}}}", self.sstatus.bits(), self.sepc)
-//     }
-// }
-
 impl TrapContext {
     pub fn init(entry: usize, usp: usize, ksp: usize, satp: usize) -> Self {
         // `spp` 保存发生中断前的特权级
         // unsafe { set_spp(SPP::User) };
-        let sstatus = sstatus::read();
-        assert_eq!(
-            sstatus.spp(),
-            SPP::User,
-            "S mode applications are not supported"
-        );
+        let mut sstatus = sstatus::read();
+        sstatus.set_spp(SPP::User);
         Self {
             reg_file: RegFile {
                 sp: usp,
@@ -69,14 +53,14 @@ impl TrapContext {
         self.reg_file.a[0] = val;
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn syscall_id(&self) -> usize {
         self.reg_file.a[7]
     }
 
-    #[inline]
-    pub fn syscall_args(&self) -> (usize, usize, usize) {
+    #[inline(always)]
+    pub fn syscall_args(&self) -> [usize; 6] {
         let a = &self.reg_file.a;
-        (a[0], a[1], a[2])
+        [a[0], a[1], a[2], a[3], a[4], a[5]]
     }
 }

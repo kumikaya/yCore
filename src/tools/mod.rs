@@ -1,9 +1,7 @@
 use core::{mem::size_of, slice};
 pub mod ansi;
 pub mod cell;
-pub mod io;
 pub mod logging;
-pub mod macros;
 
 pub const fn aligned_size<T>(meta: usize) -> usize {
     let raw_size = size_of::<T>();

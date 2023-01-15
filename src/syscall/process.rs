@@ -1,29 +1,32 @@
+use core::hint::spin_loop;
+
 use alloc::sync::Arc;
 
 use crate::{
-    kernel::{Schedule, KERNEL},
-    mem::{
+    fs::inode::open_app,
+    mm::{
         address::VirtAddr,
         page_table::{translated_refmut, translated_string},
     },
     task::{
-        app_info::get_app_data,
-        processor::Hart,
+        processor::{Hart, Schedule},
+        scheduler::add_task,
         task::TaskControlBlock,
         tigger::{ChildrenWaiter, TaskWaiter},
     },
     timer,
 };
 
-pub(super) trait Process {
+pub(super) trait SysProcess {
     fn sys_exit(&self, code: i32) -> !;
     fn sys_yield(&self) -> isize;
     fn sys_exec(&self, ptr: VirtAddr, len: usize) -> isize;
+    fn sys_fork(&self) -> isize;
     fn sys_get_pid(&self) -> isize;
     fn sys_waitpid(&self, pid: isize, exit_code_ptr: *mut i32) -> isize;
 }
 
-impl<T: Hart> Process for T {
+impl<T: Hart> SysProcess for T {
     fn sys_exit(&self, code: i32) -> ! {
         self.current_task().exit(code);
         self.entrap_task()
@@ -38,11 +41,10 @@ impl<T: Hart> Process for T {
     fn sys_exec(&self, ptr: VirtAddr, len: usize) -> isize {
         let current_task = self.current_task();
         let path = unsafe { translated_string(current_task.space(), ptr, len) };
-        // println!("{}", path);
-        if let Some(elf) = get_app_data(path.as_str()) {
-            let task = TaskControlBlock::from_elf(elf).with_parent(&current_task);
+        // println!("exec {}", path);
+        if let Some(task) = open_app(&path, Some(&current_task)) {
             let pid = task.get_pid();
-            KERNEL.push_task(task);
+            add_task(task);
             pid as isize
         } else {
             -1
@@ -62,7 +64,7 @@ impl<T: Hart> Process for T {
             (idx, waitee_task) = children
                 .iter()
                 .enumerate()
-                .find(|(_, task)| task.exit_code().is_some())
+                .find(|(_, child)| child.exit_code().is_some())
                 .map(|(idx, task)| (idx, task.clone()))
                 .unwrap();
         } else if let Some(val) = current_task.find_child(pid) {
@@ -73,6 +75,10 @@ impl<T: Hart> Process for T {
         }
         let code = waitee_task.exit_code().unwrap();
         current_task.tree.lock().children.remove(idx);
+        while Arc::strong_count(&waitee_task) != 1 {
+            self.yield_();
+        }
+        // assert_eq!(Arc::strong_count(&waitee_task), 1);
         unsafe {
             *translated_refmut(current_task.space(), exit_code_ptr) = code;
         }
@@ -81,6 +87,13 @@ impl<T: Hart> Process for T {
 
     fn sys_get_pid(&self) -> isize {
         self.current_task().get_pid()
+    }
+
+    fn sys_fork(&self) -> isize {
+        let child = self.current_task().fork();
+        let pid = child.get_pid();
+        add_task(child);
+        pid
     }
 }
 

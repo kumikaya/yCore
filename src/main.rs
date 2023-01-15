@@ -2,15 +2,16 @@
 #![no_main]
 #![feature(box_syntax)]
 #![feature(const_trait_impl, step_trait)]
-#![feature(fn_align, naked_functions, asm_const)]
 #![feature(panic_info_message, alloc_error_handler)]
-#![feature(default_free_fn)]
+#![feature(fn_align, naked_functions, asm_const, default_free_fn)]
+
+#[macro_use]
+mod console;
 mod config;
 mod drivers;
 mod fs;
-mod kernel;
 mod lang_items;
-mod mem;
+mod mm;
 mod sbi;
 mod syscall;
 mod task;
@@ -18,12 +19,13 @@ mod timer;
 mod tools;
 mod trap;
 
+
 use crate::{
     config::{HART_NUMBER, KERNEL_INIT_STACK_SIZE},
-    tools::logging,
+    tools::logging, mm::memory_set,
 };
 use core::{
-    arch::{asm, global_asm},
+    arch::asm,
     slice,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -32,8 +34,6 @@ extern crate alloc;
 #[cfg(feature = "qemu")]
 #[path = "boards/qemu.rs"]
 mod board;
-
-global_asm!(include_str!("link_app.S"));
 
 #[naked]
 #[no_mangle]
@@ -48,11 +48,11 @@ unsafe extern "C" fn _start() -> ! {
     }
 }
 
-const STACK_SIZE: usize = HART_NUMBER * KERNEL_INIT_STACK_SIZE;
+pub const STACK_SIZE: usize = HART_NUMBER * KERNEL_INIT_STACK_SIZE;
 #[link_section = ".bss.stack"]
-static mut KERNEL_STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
+pub static mut KERNEL_STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
 
-/// 为每个硬件线程分配栈
+/// 为每个硬件线程分配初始化栈
 #[naked]
 unsafe extern "C" fn locate_stack(hartid: usize) -> ! {
     asm! {"
@@ -88,22 +88,16 @@ pub fn rust_main(hartid: usize, _dtb_pa: usize) -> ! {
         // 初始化bss段
         clear_bss();
         logging::init();
-        mem::init();
-        // 中断初始化
-        trap::init();
-
-        config::config_align_check();
-        #[cfg(feature = "debug_test")]
-        {
-            mem::heap_allocator::heap_test();
-            mem::frame_allocator::frame_allocator_test();
-            mem::memory_set::identical_map_test();
-            mem::memory_set::framed_map_test();
-        }
-        kernel::add_initproc();
-        task::app_info::list_apps();
-        kernel::hart_start();
+        // drivers::print_dtb(_dtb_pa);
+        mm::init();
+        task::add_initproc();
+        fs::inode::list_apps();
+        // fs::inode::inode_test();
+        // 启动所有硬件线程
+        sbi::start_all_hart();
     }
-    kernel::init_kernel_space();
-    kernel::entrap_task(hartid)
+    // 中断初始化
+    trap::init();
+    memory_set::init_kernel_space();
+    task::entrap_task(hartid)
 }

@@ -2,8 +2,10 @@ use core::{arch::asm, ops::Range};
 use alloc::{vec::Vec, collections::BTreeMap};
 use anyhow::Result;
 use bitflags::bitflags;
+use lazy_static::lazy_static;
 use log::info;
 use riscv::register::satp;
+use spin::Mutex;
 use xmas_elf::{program::ProgramHeader, ElfFile};
 
 use crate::{
@@ -11,7 +13,7 @@ use crate::{
         PAGE_SIZE, MEMORY_END, TRAMPOLINE, GUARD_PAGE_SIZE,
         USER_STACK_SIZE, TRAP_CONTEXT
     },
-    board::MMIO, mem::address::PhysAddr,
+    board::MMIO, mm::address::PhysAddr,
 };
 
 use super::{
@@ -47,7 +49,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapType {
     Identical,
     Framed,
@@ -65,6 +67,33 @@ pub struct MapArea {
 pub struct MemorySet {
     page_table: PageTable,
     pub areas: Vec<MapArea>,
+}
+
+lazy_static! {
+    pub static ref KERNEL_SPACE: Mutex<MemorySet> = Mutex::new(MemorySet::build_kernel_space());
+}
+
+pub fn push_kernel_stack(va_start: VirtAddr, va_end: VirtAddr) {
+    KERNEL_SPACE.lock().push(
+        MapArea::new(va_start, va_end, MapPerm::RW, MapType::Framed),
+        None,
+    );
+}
+
+/// 移除内核栈时必须确保当前不在该栈上，即应用不能自己移除自己的内核栈
+pub fn remove_kernel_stack(end_vpn: VirtPageNum) {
+    KERNEL_SPACE.lock().remove_area_with_end_vpn(end_vpn);
+}
+
+pub fn init_kernel_space() {
+    KERNEL_SPACE.lock().activate()
+}
+
+pub fn kernel_token() -> usize {
+    lazy_static! {
+        static ref TOKEN: usize = KERNEL_SPACE.lock().token();
+    }
+    return *TOKEN;
 }
 
 impl MapArea {
@@ -93,6 +122,7 @@ impl MapArea {
     }
 
     pub fn copy_data(&self, page_table: &mut PageTable, data: &[u8]) {
+        assert_eq!(self.map_type, MapType::Framed);
         let mut vpn_iter = self.range.clone().into_iter();
         let mut start = 0;
         while start < data.len() {
@@ -111,7 +141,7 @@ impl MapArea {
     pub fn map_area(&mut self, page_table: &mut PageTable) {
         for vpn in self.range.clone() {
             let ppn = match self.map_type {
-                MapType::Identical => PhysPageNum::from(vpn.0),
+                MapType::Identical => PhysPageNum::from(usize::from(vpn)),
                 MapType::Framed => {
                     let frame = frame_alloc().unwrap();
                     let ppn = frame.ppn;
@@ -166,20 +196,20 @@ impl MemorySet {
         }
     }
 
-    pub fn from_existed_user(user_space: &MemorySet) -> MemorySet {
+    pub fn from_existed(space: &MemorySet) -> MemorySet {
         let mut memory_set = Self::new_bare();
         // map trampoline
         memory_set.map_trampoline();
         // copy data sections/trap_context/user_stack
-        for area in user_space.areas.iter() {
+        for area in space.areas.iter() {
             let new_area = MapArea::from_another(area);
             memory_set.push(new_area, None);
             // copy data from another space
             for vpn in area.range.clone() {
-                let src_ppn = user_space.translate(vpn).unwrap().ppn();
+                let src_ppn = space.translate(vpn).unwrap().ppn();
                 let dst_ppn = memory_set.translate(vpn).unwrap().ppn();
                 unsafe {
-                    dst_ppn.as_pte_array().copy_from_slice(src_ppn.as_pte_array());
+                    dst_ppn.as_bytes().copy_from_slice(src_ppn.as_bytes());
                 }
             }
         }
@@ -251,8 +281,8 @@ impl MemorySet {
             fn strampoline();
         }
         self.page_table.map(
-            TRAMPOLINE.into(),
-            PhysAddr(strampoline as usize).into(),
+            VirtAddr::from(TRAMPOLINE).into(),
+            PhysAddr::from(strampoline as usize).into(),
             PTEFlags::R | PTEFlags::X
         );
         
@@ -267,7 +297,7 @@ impl MemorySet {
         let magic = header.pt1.magic;
         assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
         let ph_count = header.pt2.ph_count();
-        let mut program_vpn_end = VirtPageNum(0);
+        let mut program_vpn_end = VirtPageNum::default();
         for i in 0..ph_count {
             let ph = elf.program_header(i).unwrap();
             match ph.get_type().unwrap() {
@@ -284,7 +314,7 @@ impl MemorySet {
                 _ => (),
             }
         }
-        assert_ne!(program_vpn_end.0, 0, "empty program");
+        assert_ne!(usize::from(program_vpn_end), 0, "empty program");
         let user_stack_top = VirtAddr::from(program_vpn_end) + VirtAddr::from(GUARD_PAGE_SIZE);
         let user_stack_bottom = user_stack_top + VirtAddr::from(USER_STACK_SIZE);
         // maping user stack
@@ -300,8 +330,8 @@ impl MemorySet {
         // map TrapContext
         memory_set.push(
             MapArea::new(
-                TRAP_CONTEXT,
-                TRAP_CONTEXT.offset(1),
+                (TRAP_CONTEXT).into(),
+                (TRAP_CONTEXT + 1).into(),
                 MapPerm::RW,
                 MapType::Framed,
             ),
@@ -317,7 +347,7 @@ impl MemorySet {
         let rodata = (srodata as usize)..(erodata as usize);
         let data =     (sdata as usize)..(edata as usize);
         let bss =      (sbss as usize)..(ebss as usize);
-        let phys_mem = (ekernel as usize)..(MEMORY_END & !PAGE_SIZE);
+        let phys_mem = (ekernel as usize)..MEMORY_END;
         let stack =    (stack_top as usize)..(stack_bottom as usize);
         assert!(text.start %     PAGE_SIZE == 0);
         assert!(rodata.start %   PAGE_SIZE == 0);

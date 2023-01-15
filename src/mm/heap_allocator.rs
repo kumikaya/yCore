@@ -1,5 +1,5 @@
 use buddy_system_allocator::LockedHeap;
-use crate::{config::KERNEL_HEAP_SIZE, println};
+use crate::config::KERNEL_HEAP_SIZE;
 
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::empty();

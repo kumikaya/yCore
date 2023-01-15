@@ -1,26 +1,23 @@
 use alloc::vec::Vec;
 use lazy_static::lazy_static;
-use log::info;
+use spin::Mutex;
 
-use crate::{tools::cell::STRefCell, mem::address::PhysAddr, config::MEMORY_END, println};
+use crate::{mm::address::PhysAddr, config::MEMORY_END};
 
 use super::address::PhysPageNum;
 
 
 lazy_static! {
-    pub static ref FRAME_ALLOCATOR: STRefCell<StackFrameAllocator> = {
+    pub static ref FRAME_ALLOCATOR: Mutex<StackFrameAllocator> = {
         extern "C" {
             fn ekernel();
         }
-        STRefCell::new(
-            StackFrameAllocator::new(PhysAddr(ekernel as usize).ceil(), PhysAddr(MEMORY_END).floor())
+        Mutex::new(
+            StackFrameAllocator::new(PhysAddr::from(ekernel as usize).ceil(), PhysAddr::from(MEMORY_END).floor())
         )
     };
 }
 
-// pub fn init_frame_allocator() {
-//     FRAME_ALLOCATOR.borrow();
-// }
 
 trait FrameAllocator {
     // fn new() -> Self;
@@ -35,11 +32,11 @@ pub struct StackFrameAllocator {
 }
 
 impl StackFrameAllocator {
-    /// Create frame allocator for [PhysPageNum] in [start, end)
+    /// Create frame allocator for `PhysPageNum` in [start, end)
     pub fn new(start: PhysPageNum, end: PhysPageNum) -> Self {
         Self {
-            current: start.0,
-            end: end.0,
+            current: start.into(),
+            end: end.into(),
             recycled: Vec::new(),
         }
     }
@@ -52,20 +49,19 @@ impl StackFrameAllocator {
 impl FrameAllocator for StackFrameAllocator {
     fn alloc(&mut self) -> Option<PhysPageNum> {
         if let Some(ppn) = self.recycled.pop() {
-            Some(PhysPageNum(ppn))
+            Some(ppn.into())
+        } else if self.current < self.end {
+            self.current += 1;
+            Some((self.current - 1).into())
         } else {
-            if self.current < self.end {
-                self.current += 1;
-                Some(PhysPageNum(self.current - 1))
-            } else {
-                None
-            }
+            None
         }
+        
     }
 
     fn dealloc(&mut self, ppn: PhysPageNum) {
-        let ppn = ppn.0;
-        if ppn >= self.current || self.recycled.iter().find(|&v| *v == ppn).is_some() {
+        let ppn: usize = ppn.into();
+        if ppn >= self.current || self.recycled.iter().any(|&v| v == ppn) {
             panic!("Frame ppn={:#x} has not been allocated!", ppn);
         }
         self.recycled.push(ppn);
@@ -80,7 +76,12 @@ pub struct FrameTracker {
 impl FrameTracker {
     fn new(ppn: PhysPageNum) -> Self {
         unsafe {
-            ppn.as_bytes().fill(0);   
+            ppn.as_bytes().fill(0);
+            for x in ppn.as_bytes().iter() {
+                if *x != 0 {
+                    panic!();
+                }
+            }
         }
         Self { ppn }
     }
@@ -93,17 +94,17 @@ impl Drop for FrameTracker {
 }
 
 pub fn frame_alloc() -> Option<FrameTracker> {
-    FRAME_ALLOCATOR.borrow_mut().alloc().map(|frame| {
+    FRAME_ALLOCATOR.lock().alloc().map(|frame| {
         FrameTracker::new(frame)
     })
 }
 
-fn frame_dealloc(ppn: PhysPageNum) {
-    FRAME_ALLOCATOR.borrow_mut().dealloc(ppn);
+pub fn frame_dealloc(ppn: PhysPageNum) {
+    FRAME_ALLOCATOR.lock().dealloc(ppn);
 }
 
 fn free_frame_num() -> usize {
-    FRAME_ALLOCATOR.borrow().free_frame_num()
+    FRAME_ALLOCATOR.lock().free_frame_num()
 }
 
 #[cfg(feature = "debug_test")]

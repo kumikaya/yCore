@@ -1,14 +1,6 @@
-use alloc::format;
-// use lazy_static::lazy_static;
 use log::{self, Level, LevelFilter, Log, Metadata, Record};
 
-use crate::{
-    println,
-    tools::ansi::{Color, Colour},
-};
-// use crate::sync::SpinNoIrqLock as Mutex;
-
-// static LOG_LOCK: Mutex<()> = Mutex::new(());
+use crate::tools::ansi::{Color, Colour};
 
 pub fn init() {
     static LOGGER: SimpleLogger = SimpleLogger;

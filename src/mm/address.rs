@@ -7,23 +7,26 @@ use crate::config::{PAGE_SIZE, PAGE_WIDTH, SV39_PAGE_LEVEL, SV39_PAGE_INDEX_WIDT
 use super::page_table::PageTableEntry;
 
 const PA_WIDTH_SV39: usize = 56;
+const VA_WIDTH_SV39: usize = 39;
 const PPN_WIDTH_SV39: usize = PA_WIDTH_SV39 - PAGE_WIDTH;
+const VPN_WIDTH_SV39: usize = VA_WIDTH_SV39 - PAGE_WIDTH;
+
 
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct PhysAddr(pub usize);
+pub struct PhysAddr(usize);
 
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct VirtAddr(pub usize);
+pub struct VirtAddr(usize);
 
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct PhysPageNum(pub usize);
+pub struct PhysPageNum(usize);
 
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct VirtPageNum(pub usize);
+pub struct VirtPageNum(usize);
 
 macro_rules! impl_add_and_sub {
     ($type: ty) => {
@@ -112,26 +115,30 @@ impl_display!(PhysPageNum);
 impl_display!(VirtPageNum);
 
 impl_step!(VirtPageNum);
+impl_step!(PhysPageNum);
 
 pub type VPNRange = Range<VirtPageNum>;
 
-impl From<usize> for PhysAddr {
+impl const From<usize> for PhysAddr {
     fn from(v: usize) -> Self {
-        Self(v & ((1 << PA_WIDTH_SV39) - 1))
+        assert!(v < (1 << PA_WIDTH_SV39));
+        Self(v)
     }
 }
-impl From<usize> for PhysPageNum {
+impl const From<usize> for PhysPageNum {
     fn from(v: usize) -> Self {
-        Self(v & ((1 << PPN_WIDTH_SV39) - 1))
+        // Self(v & )
+        assert!(v < (1 << PPN_WIDTH_SV39));
+        Self(v)
     }
 }
 
-impl From<PhysAddr> for usize {
+impl const From<PhysAddr> for usize {
     fn from(v: PhysAddr) -> Self {
         v.0
     }
 }
-impl From<PhysPageNum> for usize {
+impl const From<PhysPageNum> for usize {
     fn from(v: PhysPageNum) -> Self {
         v.0
     }
@@ -145,20 +152,22 @@ impl From<PhysAddr> for PhysPageNum {
     }
 }
 
-impl From<PhysPageNum> for PhysAddr {
+impl const From<PhysPageNum> for PhysAddr {
     fn from(v: PhysPageNum) -> Self {
         Self(v.0 << PAGE_WIDTH)
     }
 }
 
-impl From<usize> for VirtAddr {
+impl const From<usize> for VirtAddr {
     fn from(v: usize) -> Self {
-        Self(v & ((1 << PA_WIDTH_SV39) - 1))
+        assert!(isize::abs(v as isize) < (1 << VA_WIDTH_SV39));
+        Self(v)
     }
 }
-impl From<usize> for VirtPageNum {
+impl const From<usize> for VirtPageNum {
     fn from(v: usize) -> Self {
-        Self(v & ((1 << PPN_WIDTH_SV39) - 1))
+        assert!(isize::abs(v as isize) < (1 << VPN_WIDTH_SV39));
+        Self(v)
     }
 }
 
@@ -169,18 +178,18 @@ impl From<VirtAddr> for VirtPageNum {
     }
 }
 
-impl From<VirtPageNum> for VirtAddr {
+impl const From<VirtPageNum> for VirtAddr {
     fn from(v: VirtPageNum) -> Self {
         Self(v.0 << PAGE_WIDTH)
     }
 }
 
-impl From<VirtAddr> for usize {
+impl const From<VirtAddr> for usize {
     fn from(v: VirtAddr) -> Self {
         v.0
     }
 }
-impl From<VirtPageNum> for usize {
+impl const From<VirtPageNum> for usize {
     fn from(v: VirtPageNum) -> Self {
         v.0
     }
@@ -196,7 +205,7 @@ impl PhysAddr {
         PhysPageNum(self.0 / PAGE_SIZE)
     }
     pub fn ceil(&self) -> PhysPageNum {
-        PhysPageNum((self.0 + PAGE_SIZE - 1) / PAGE_SIZE)
+        PhysPageNum((self.0 - 1 + PAGE_SIZE) / PAGE_SIZE)
     }
     pub fn page_offset(self) -> usize {
         self.0 % PAGE_SIZE
@@ -222,7 +231,7 @@ impl VirtAddr {
         VirtPageNum(self.0 / PAGE_SIZE)
     }
     pub fn ceil(&self) -> VirtPageNum {
-        VirtPageNum((self.0 + (PAGE_SIZE - 1)) / PAGE_SIZE)
+        VirtPageNum((self.0 - 1 + PAGE_SIZE) / PAGE_SIZE)
     }
     pub fn page_offset(self) -> usize {
         self.0 % PAGE_SIZE

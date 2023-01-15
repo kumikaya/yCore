@@ -8,23 +8,23 @@ edition = "2021"
 [dependencies]
 log = { version = "0.4" }
 lazy_static = { version = "1.4", features = ["spin_no_std"] }
-# riscv = { git = "https://github.com/rcore-os/riscv", features = ["inline-asm"] }
-virtio-drivers = "0.2"
 buddy_system_allocator = "0.9"
 bitflags = "1.3"
 xmas-elf = "0.9.0"
 # riscv-decode = "0.2"
 anyhow = { version = "1.0", default-features = false }
+virtio-drivers = { path = "../virtio-drivers" }
 easy-fs = { path = "../easy-fs" }
-riscv = { path = "../riscv" }
+riscv = { path = "../rcore-riscv", features = ["inline-asm"] }
+# riscv = { path = "../riscv" }
 sbi-rt = "0.0.2"
 spin = "0.9"
-# riscv = { path = "../rcore-riscv", features = ["inline-asm"] }
-# futures = { version = "0.3", default-features = false , features = ["alloc"]}
+dtb-walker = { path = "../dtb-walker" }
 [features]
 default = ["qemu"]
 debug_test = []
 qemu = []
 
-[profile.dev.package."*"]
-opt-level = 3
+# [profile.release]
+# opt-level = 0
+

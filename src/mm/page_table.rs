@@ -1,9 +1,10 @@
+
 use super::{
     address::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum},
     frame_allocator::{frame_alloc, FrameTracker},
     memory_set::MemorySet,
 };
-use crate::{config::PAGE_SIZE, println};
+use crate::config::PAGE_SIZE;
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use anyhow::Result;
 use bitflags::bitflags;
@@ -31,7 +32,7 @@ pub struct PageTableEntry {
 impl PageTableEntry {
     pub fn new(ppn: PhysPageNum, flags: PTEFlags) -> Self {
         Self {
-            bits: ppn.0 << 10 | flags.bits as usize,
+            bits: usize::from(ppn) << 10 | flags.bits as usize,
         }
     }
 
@@ -89,7 +90,7 @@ impl PageTable {
     #[inline]
     pub fn token(&self) -> usize {
         let mode = (satp::Mode::Sv39 as usize) << 60;
-        mode | self.root_ppn.0
+        mode | usize::from(self.root_ppn)
     }
 
     // pub fn from_token(satp: usize) -> Self {
@@ -145,7 +146,7 @@ impl PageTable {
     }
 
     pub fn malloc(&mut self, vpn: VirtPageNum, flags: PTEFlags) -> Result<()> {
-        if vpn.0 == 0 || self.leafs.contains_key(&vpn) {
+        if usize::from(vpn) == 0 || self.leafs.contains_key(&vpn) {
             return Err(anyhow::Error::msg("vpn malloc error!"));
         }
         let frame = frame_alloc().unwrap();
@@ -177,7 +178,7 @@ impl PageTable {
     pub fn unmap_uncheck(&mut self, vpn: VirtPageNum) {
         let pte = self.find_pte(vpn).unwrap();
         // assert_ne!(pte.flags() & PTEFlags::U, PTEFlags::empty());
-        assert!(pte.is_valid(), "vpn {:X} is not mapped", vpn.0);
+        assert!(pte.is_valid(), "vpn {:X} is not mapped", usize::from(vpn));
         *pte = PageTableEntry::empty();
         // self.leafs.remove(&vpn);
     }
@@ -222,12 +223,12 @@ pub unsafe fn translated_refmut<T>(space: &MemorySet, ptr: *mut T) -> &'static m
 }
 
 ///Array of u8 slice that user communicate with os
-pub struct UserBuffer {
+pub struct BufferHandle {
     ///U8 vec
     pub buffers: Vec<&'static mut [u8]>,
 }
 
-impl UserBuffer {
+impl BufferHandle {
     ///Create a `UserBuffer` by parameter
     pub fn new(buffers: Vec<&'static mut [u8]>) -> Self {
         Self { buffers }
@@ -243,8 +244,8 @@ impl UserBuffer {
 
     pub fn write(&mut self, data: &[u8]) -> usize {
         let mut data_idx: usize = 0;
-        for idx in 0..self.buffers.len() {
-            for x in &mut *self.buffers[idx] {
+        for buffer in self.buffers.iter_mut() {
+            for x in buffer.iter_mut() {
                 if data_idx >= data.len() {
                     return data_idx;
                 }
@@ -256,7 +257,7 @@ impl UserBuffer {
     }
 }
 
-impl IntoIterator for UserBuffer {
+impl IntoIterator for BufferHandle {
     type Item = *mut u8;
     type IntoIter = UserBufferIterator;
     fn into_iter(self) -> Self::IntoIter {
