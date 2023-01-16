@@ -6,7 +6,7 @@ use super::{
 };
 use crate::config::PAGE_SIZE;
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use anyhow::Result;
+use anyhow::{Result, Error, anyhow};
 use bitflags::bitflags;
 use riscv::register::satp;
 
@@ -147,40 +147,47 @@ impl PageTable {
 
     pub fn malloc(&mut self, vpn: VirtPageNum, flags: PTEFlags) -> Result<()> {
         if usize::from(vpn) == 0 || self.leafs.contains_key(&vpn) {
-            return Err(anyhow::Error::msg("vpn malloc error!"));
+            return Err(anyhow!("vpn {} already malloc", vpn));
         }
-        let frame = frame_alloc().unwrap();
+        let frame = frame_alloc()?;
         let ppn = frame.ppn;
         self.leafs.insert(vpn, frame);
-        self.map(vpn, ppn, flags);
-        Ok(())
+        self.map(vpn, ppn, flags)
     }
 
     pub fn free(&mut self, vpn: VirtPageNum) -> Result<()> {
         if let Some(_) = self.leafs.remove(&vpn) {
-            self.unmap_uncheck(vpn);
-            Ok(())
+            self.unmap_uncheck(vpn)
         } else {
-            Err(anyhow::Error::msg("vpn free error!"))
+            Err(anyhow!("vpn {} is not malloc", vpn))
         }
     }
 
-    pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: PTEFlags) {
+    pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: PTEFlags) -> Result<()> {
         let pte_entry = self.find_pte_entry(vpn);
-        assert!(
-            !pte_entry.is_valid(),
-            "vpn {:?} is mapped before mapping",
-            vpn
-        );
-        *pte_entry = PageTableEntry::new(ppn, flags | PTEFlags::V)
+        if !pte_entry.is_valid() {
+            *pte_entry = PageTableEntry::new(ppn, flags | PTEFlags::V);
+            Ok(())
+        } else {
+            Err(anyhow!("vpn {} is mapped before mapping", vpn))
+        }
+        // assert!(
+        //     !pte_entry.is_valid(),
+        //     "vpn {:?} is mapped before mapping",
+        //     vpn
+        // );
+        
     }
 
-    pub fn unmap_uncheck(&mut self, vpn: VirtPageNum) {
+    pub fn unmap_uncheck(&mut self, vpn: VirtPageNum) -> Result<()> {
         let pte = self.find_pte(vpn).unwrap();
         // assert_ne!(pte.flags() & PTEFlags::U, PTEFlags::empty());
-        assert!(pte.is_valid(), "vpn {:X} is not mapped", usize::from(vpn));
-        *pte = PageTableEntry::empty();
-        // self.leafs.remove(&vpn);
+        if pte.is_valid() {
+            *pte = PageTableEntry::empty();
+            Ok(())
+        } else {
+            Err(anyhow!("vpn {} is not mapped", vpn))
+        }
     }
 
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
@@ -192,28 +199,34 @@ pub unsafe fn translated_byte_buffer(
     space: &MemorySet,
     ptr: VirtAddr,
     len: usize,
-) -> Vec<&'static mut [u8]> {
+) -> Result<Vec<&'static mut [u8]>> {
     let mut start = ptr;
     let end = ptr.offset(len as isize);
     let mut result = Vec::new();
     while start < end {
         let vpn = start.floor();
-        let ppn = space.translate(vpn).unwrap().ppn();
+        let ppn = {
+            if let Some(entry) = space.translate(vpn) {
+                entry.ppn()
+            } else {
+                return Err(anyhow!("illegal address {}", start));
+            }
+        };
         let end_va = VirtAddr::from(vpn.offset(1)).min(end);
         let part = &mut ppn.as_bytes()[start.page_offset()..end_va.page_offset()];
         result.push(part);
         start = end_va;
     }
-    result
+    Ok(result)
 }
 
-pub unsafe fn translated_string(space: &MemorySet, ptr: VirtAddr, len: usize) -> String {
-    let raw_buffer = translated_byte_buffer(space, ptr, len);
-    let buffer = raw_buffer.iter().fold(Vec::<u8>::new(), |mut acc, x| {
+pub unsafe fn translated_string(space: &MemorySet, ptr: VirtAddr, len: usize) -> Result<String> {
+    let raw_buffer = translated_byte_buffer(space, ptr, len)?;
+    let buffer = raw_buffer.iter().fold(Vec::<u8>::with_capacity(len), |mut acc, x| {
         acc.extend(x.iter());
         acc
     });
-    String::from_utf8(buffer).unwrap()
+    String::from_utf8(buffer).map_err(|err| anyhow!("{}", err))
 }
 
 pub unsafe fn translated_refmut<T>(space: &MemorySet, ptr: *mut T) -> &'static mut T {

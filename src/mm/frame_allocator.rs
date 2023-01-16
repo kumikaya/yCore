@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use anyhow::{Result, anyhow};
 use lazy_static::lazy_static;
 use spin::Mutex;
 
@@ -21,7 +22,7 @@ lazy_static! {
 
 trait FrameAllocator {
     // fn new() -> Self;
-    fn alloc(&mut self) -> Option<PhysPageNum>;
+    fn alloc(&mut self) -> Result<PhysPageNum>;
     fn dealloc(&mut self, ppn: PhysPageNum);
 }
 
@@ -47,14 +48,14 @@ impl StackFrameAllocator {
 }
 
 impl FrameAllocator for StackFrameAllocator {
-    fn alloc(&mut self) -> Option<PhysPageNum> {
+    fn alloc(&mut self) -> Result<PhysPageNum> {
         if let Some(ppn) = self.recycled.pop() {
-            Some(ppn.into())
+            Ok(ppn.into())
         } else if self.current < self.end {
             self.current += 1;
-            Some((self.current - 1).into())
+            Ok((self.current - 1).into())
         } else {
-            None
+            Err(anyhow!("frame alloc fail"))
         }
         
     }
@@ -93,7 +94,7 @@ impl Drop for FrameTracker {
     }
 }
 
-pub fn frame_alloc() -> Option<FrameTracker> {
+pub fn frame_alloc() -> Result<FrameTracker> {
     FRAME_ALLOCATOR.lock().alloc().map(|frame| {
         FrameTracker::new(frame)
     })

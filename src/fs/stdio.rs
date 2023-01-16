@@ -1,5 +1,5 @@
 use super::File;
-use crate::{mm::page_table::BufferHandle, print, sbi::console_getchar};
+use crate::{mm::page_table::BufferHandle, print, sbi::console_getchar, task::processor::yield_};
 
 pub struct Stdin;
 
@@ -14,7 +14,7 @@ impl File for Stdin {
         let ch: u8 = loop {
             let c = console_getchar();
             if c == 0 {
-                // _yield();
+                yield_();
             } else {
                 break c as u8;
             }

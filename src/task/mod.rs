@@ -4,7 +4,7 @@ use log::info;
 
 use crate::{
     fs::inode::open_app,
-    task::{processor::Hart, scheduler::get_processor},
+    task::scheduler::get_processor,
 };
 
 use self::{scheduler::add_task, task::TaskContext};
@@ -47,12 +47,12 @@ pub unsafe extern "C" fn __switch(current: *mut TaskContext, next: *mut TaskCont
 
 pub fn add_initproc() {
     // 添加初始程序
-    let initproc = open_app("initproc", None).unwrap();
+    let initproc = open_app("initproc").unwrap();
     add_task(initproc);
 }
 
-pub fn entrap_task(hartid: usize) -> ! {
+pub fn entrap_task() -> ! {
     // info!("hart {} into task", hartid);
-    get_processor(hartid).entrap_task()
+    get_processor().entrap_task()
     // KERNEL.processors[hartid].entrap_task()
 }

@@ -1,6 +1,5 @@
-use core::hint::spin_loop;
-
 use alloc::sync::Arc;
+use bitflags::bitflags;
 
 use crate::{
     fs::inode::open_app,
@@ -8,46 +7,63 @@ use crate::{
         address::VirtAddr,
         page_table::{translated_refmut, translated_string},
     },
+    syscall_unwarp,
     task::{
-        processor::{Hart, Schedule},
+        processor::Schedule,
         scheduler::add_task,
-        task::TaskControlBlock,
+        task::{TaskControlBlock, TaskStatus},
         tigger::{ChildrenWaiter, TaskWaiter},
     },
     timer,
 };
 
+use super::{EXEC_FAIL, EXEC_SUCCEE};
+
 pub(super) trait SysProcess {
     fn sys_exit(&self, code: i32) -> !;
     fn sys_yield(&self) -> isize;
-    fn sys_exec(&self, ptr: VirtAddr, len: usize) -> isize;
+    fn sys_exec(&self, ptr: VirtAddr, len: usize, flags: u32) -> isize;
     fn sys_fork(&self) -> isize;
     fn sys_get_pid(&self) -> isize;
     fn sys_waitpid(&self, pid: isize, exit_code_ptr: *mut i32) -> isize;
 }
 
-impl<T: Hart> SysProcess for T {
+bitflags! {
+    struct ExecFlags: u32 {
+        const EMPTY      = 0;
+        /// 继承管道
+        const INHERIT    = 1 << 0;
+        /// 子进程优先执行
+        const ORDER_ASC  = 1 << 1;
+        /// 父进程优先执行
+        const ORDER_DESC = 1 << 2;
+    }
+}
+
+impl<T: Schedule> SysProcess for T {
     fn sys_exit(&self, code: i32) -> ! {
-        self.current_task().exit(code);
-        self.entrap_task()
+        self.exit_current(code)
     }
 
     fn sys_yield(&self) -> isize {
-        self.current_task().ready();
-        self.schedule();
-        0
+        self.yield_();
+        EXEC_SUCCEE
     }
 
-    fn sys_exec(&self, ptr: VirtAddr, len: usize) -> isize {
+    fn sys_exec(&self, ptr: VirtAddr, len: usize, flags: u32) -> isize {
+        let flags = ExecFlags::from_bits_truncate(flags);
         let current_task = self.current_task();
-        let path = unsafe { translated_string(current_task.space(), ptr, len) };
-        // println!("exec {}", path);
-        if let Some(task) = open_app(&path, Some(&current_task)) {
+        let path = unsafe { syscall_unwarp!(translated_string(current_task.space(), ptr, len)) };
+        if let Some(task) = open_app(&path) {
+            unsafe { task.set_parent(current_task) };
             let pid = task.get_pid();
+            if flags.contains(ExecFlags::INHERIT) {
+                *task.fd_table.borrow_mut() = current_task.fd_table.borrow().clone();
+            }
             add_task(task);
             pid as isize
         } else {
-            -1
+            EXEC_FAIL
         }
     }
 
@@ -57,9 +73,9 @@ impl<T: Hart> SysProcess for T {
         let waitee_task: Arc<TaskControlBlock>;
         if pid == -1 {
             self.blocking_current(ChildrenWaiter::new(current_task.clone()));
-            let children = &current_task.tree.lock().children;
+            let children = &current_task.tree.borrow().children;
             if children.is_empty() {
-                return -1;
+                return EXEC_FAIL;
             }
             (idx, waitee_task) = children
                 .iter()
@@ -67,18 +83,17 @@ impl<T: Hart> SysProcess for T {
                 .find(|(_, child)| child.exit_code().is_some())
                 .map(|(idx, task)| (idx, task.clone()))
                 .unwrap();
-        } else if let Some(val) = current_task.find_child(pid) {
+        } else if let Some(val) = unsafe { current_task.find_child(pid) } {
             (idx, waitee_task) = val;
-            self.blocking_current(TaskWaiter::new(waitee_task.clone()));
+            self.blocking_current(TaskWaiter::new(
+                waitee_task.shared_state.clone(),
+                TaskStatus::Exited,
+            ));
         } else {
-            return -1;
+            return EXEC_FAIL;
         }
         let code = waitee_task.exit_code().unwrap();
-        current_task.tree.lock().children.remove(idx);
-        while Arc::strong_count(&waitee_task) != 1 {
-            self.yield_();
-        }
-        // assert_eq!(Arc::strong_count(&waitee_task), 1);
+        current_task.tree.borrow_mut().children.remove(idx);
         unsafe {
             *translated_refmut(current_task.space(), exit_code_ptr) = code;
         }

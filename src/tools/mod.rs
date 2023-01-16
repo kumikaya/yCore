@@ -1,6 +1,5 @@
 use core::{mem::size_of, slice};
 pub mod ansi;
-pub mod cell;
 pub mod logging;
 
 pub const fn aligned_size<T>(meta: usize) -> usize {

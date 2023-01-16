@@ -2,12 +2,15 @@ mod fs;
 mod process;
 mod mm;
 mod sync;
-use crate::task::processor::Hart;
+use log::warn;
 
+use crate::task::processor::Schedule;
 use self::{fs::*, process::*, mm::*, sync::*};
 
+const SYSCALL_DUP: usize = 24;
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
+const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
@@ -17,20 +20,25 @@ const SYSCALL_TIME: usize = 169;
 const SYSCALL_GET_PID: usize = 172;
 const SYSCALL_MUNMAP: usize = 215;
 const SYSCALL_FORK: usize = 220;
-const SYSCALL_EXEC: usize = 221;
+const SYSCALL_EXECVE: usize = 221;
 const SYSCALL_MMAP: usize = 222;
 const SYSCALL_WAITPID: usize = 260;
+
+const EXEC_SUCCEE: isize = 0;
+const EXEC_FAIL: isize = -1;
 
 pub trait Syscall {
     fn syscall(&self, syscall_id: usize, args: [usize; 6]) -> isize;
 }
 
-impl<T: Hart> Syscall for T {
+impl<T: Schedule> Syscall for T {
     #[inline(always)]
     fn syscall(&self, syscall_id: usize, args: [usize; 6]) -> isize {
         match syscall_id {
+            SYSCALL_DUP     => self.sys_dup(args[0]),
             SYSCALL_OPEN    => self.sys_open(args[0].into(), args[1], args[2] as u32),
-            SYSCALL_CLOSE    => self.sys_close(args[0]),
+            SYSCALL_CLOSE   => self.sys_close(args[0]),
+            SYSCALL_PIPE    => self.sys_pipe(args[0] as *mut usize),
             SYSCALL_READ    => self.sys_read(args[0], args[1], args[2]),
             SYSCALL_WRITE   => self.sys_write(args[0], args[1], args[2]),
             SYSCALL_EXIT    => self.sys_exit(args[0] as i32),
@@ -41,9 +49,25 @@ impl<T: Hart> Syscall for T {
             SYSCALL_MUNMAP  => self.sys_munmap(args[0].into(), args[1]),
             SYSCALL_MMAP    => self.sys_mmap(args[0].into(), args[1], args[2], args[3]),
             SYSCALL_FORK    => self.sys_fork(),
-            SYSCALL_EXEC    => self.sys_exec(args[0].into(), args[1]),
+            SYSCALL_EXECVE  => self.sys_exec(args[0].into(), args[1], args[2] as u32),
             SYSCALL_WAITPID => self.sys_waitpid(args[0] as isize, args[1] as *mut i32),
-            _ => panic!("Unsupported syscall id: {}", syscall_id),
+            _ => {
+                warn!("Unsupported syscall id: {}", syscall_id);
+                -1
+            },
         }
     }
+}
+
+#[macro_export]
+macro_rules! syscall_unwarp {
+    ($exp: expr) => {
+        match $exp {
+            Ok(value) => value,
+            Err(err) => {
+                log::warn!("{}", err);
+                return EXEC_FAIL
+            },
+        }
+    };
 }

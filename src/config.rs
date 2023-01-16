@@ -18,9 +18,7 @@ pub const MEMORY_END: usize = 0x8800_0000;
 pub const CLOCK_FREQ: usize = 12500000;
 /// 自定义时钟中断频率
 pub const TICK_FREQ: usize = 100;
-
 pub const PID_START: usize = 1000;
-
 
 pub const PAGE_WIDTH: usize = 12;
 pub const PAGE_SIZE: usize = 1 << PAGE_WIDTH;
@@ -30,6 +28,5 @@ pub const SV39_PAGE_INDEX_WIDTH: usize = 9;
 pub fn kernel_stack_position(pid: isize) -> (usize, usize) {
     let bottom = TRAMPOLINE - (pid as usize - PID_START) * (KERNEL_STACK_SIZE + GUARD_PAGE_SIZE);
     let top = bottom - KERNEL_STACK_SIZE;
-    // println!("ksp: {:X}-{:X}", top, bottom);
     (top, bottom)
 }

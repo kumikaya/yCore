@@ -4,7 +4,8 @@ use crate::mm::page_table::BufferHandle;
 
 pub mod stdio;
 pub mod inode;
-pub type FileArc = Arc<dyn File + Send + Sync>;
+pub mod pipe;
+pub type FileBox = Arc<dyn File + Send + Sync>;
 
 pub trait File {
     fn readable(&self) -> bool;

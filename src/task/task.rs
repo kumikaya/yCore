@@ -1,4 +1,4 @@
-use core::{fmt::Debug, arch::asm};
+use core::{arch::asm, cell::RefCell, fmt::Debug};
 
 use alloc::{
     string::String,
@@ -6,36 +6,35 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use log::info;
 use spin::Mutex;
 use xmas_elf::ElfFile;
 
 use crate::{
-    config::{kernel_stack_position, TRAP_CONTEXT},
+    config::{kernel_stack_position, KERNEL_INIT_STACK_SIZE, KERNEL_STACK_SIZE, TRAP_CONTEXT},
     fs::{
         stdio::{Stdin, Stdout},
-        FileArc,
+        FileBox,
     },
     mm::{
         address::{PhysAddr, VirtAddr},
         memory_set::{kernel_token, push_kernel_stack, remove_kernel_stack, MemorySet},
     },
-    tools::cell::STRefCell,
     trap::{context::TrapContext, init_app_trap_return},
-    KERNEL_STACK, STACK_SIZE, task::{scheduler::{GLOBAL_SCHEDULER, get_processor}, entrap_task, processor::Hart},
+    KERNEL_STACK,
 };
 
 use super::{
     pid::{pid_alloc, PidHandle},
-    tigger::FutureBox,
+    processor::switch_trampoline,
+    scheduler::get_hartid,
 };
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct TaskContext {
-    pub ra: usize,      // 0
-    pub ksp: usize,     // 1
-    pub s: [usize; 12], // 2
+    ra: usize,      // 0
+    ksp: usize,     // 1
+    s: [usize; 12], // 2
 }
 
 impl const Default for TaskContext {
@@ -59,39 +58,53 @@ impl TaskContext {
         result
     }
 
-    pub fn goto_init(hartid: usize) -> Self {
-        let ksp = unsafe { &KERNEL_STACK as *const u8 as usize + hartid * STACK_SIZE };
-        let mut result = Self {
-            ra: processor_init as usize,
+    pub fn switch_trampoline() -> Self {
+        let ksp = unsafe { &KERNEL_STACK as *const u8 as usize }
+            + (get_hartid() + 1) * KERNEL_INIT_STACK_SIZE;
+        Self {
+            ra: switch_trampoline as usize,
             ksp,
             s: [0; 12],
-        };
-        result.s[0] = hartid;
-        result
+        }
     }
-}
-
-pub unsafe fn processor_init() {
-    let hartid: usize;
-    asm! {r"
-        mv {hartid}, s0
-        ",
-        hartid = out(reg) hartid
-    }
-    let processor = get_processor(hartid);
-    processor.set_current(None);
-    processor.entrap_task()
 }
 
 pub type Task = Arc<TaskControlBlock>;
 
 pub struct TaskControlBlock {
     pid: PidHandle,
-    // ksp:
+    pub shared_state: Arc<SharedStatus>,
+    pub tree: RefCell<ProcessTree>,
+    context: RefCell<Context>,
+    pub fd_table: RefCell<FdTable>,
+}
+
+// unsafe impl Sync for TaskControlBlock {}
+// unsafe impl Send for TaskControlBlock {}
+
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum TaskStatus {
+    Exited,
+    #[default]
+    Ready,
+    Running,
+    Wait,
+}
+
+#[derive(Default)]
+pub struct SharedStatus {
     pub state: Mutex<TaskStatus>,
-    pub tree: Mutex<ProcessTree>,
-    pub context: STRefCell<Context>,
-    pub fd_table: STRefCell<FdTable>,
+    pub exit_code: Mutex<Option<i32>>,
+}
+
+impl SharedStatus {
+    pub fn new() -> Self {
+        Self {
+            state: Mutex::new(TaskStatus::Ready),
+            exit_code: Mutex::new(None),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -108,49 +121,44 @@ pub struct Context {
 
 #[derive(Clone)]
 pub struct FdTable {
-    ports: Vec<Option<FileArc>>,
+    table: Vec<Option<FileBox>>,
 }
 
 impl FdTable {
     pub fn new() -> Self {
-        let mut ports: Vec<Option<FileArc>> = Vec::with_capacity(3);
-        ports.push(Some(Arc::new(Stdin)));
-        ports.push(Some(Arc::new(Stdout)));
-        ports.push(Some(Arc::new(Stdout)));
-        // Self {
-        //     ports: vec![
-        //         Some(Arc::new(Stdin)),  // 0 stdin
-        //         Some(Arc::new(Stdout)), // 1 stdout
-        //         Some(Arc::new(Stdout)), // 2 stderr
-        //     ],
-        // }
-        Self { ports }
+        Self {
+            table: vec![
+                Some(Arc::new(Stdin)),  // 0 stdin
+                Some(Arc::new(Stdout)), // 1 stdout
+                Some(Arc::new(Stdout)), // 2 stderr
+            ],
+        }
     }
 
-    pub fn push_fd(&mut self, file: FileArc) -> usize {
+    pub fn push_fd(&mut self, file: FileBox) -> usize {
         let fd = self
-            .ports
+            .table
             .iter()
             .enumerate()
             .find(|(idx, file)| *idx >= 2 && file.is_none())
             .map(|(idx, _)| idx);
         if let Some(idx) = fd {
-            self.ports[idx] = Some(file);
+            self.table[idx] = Some(file);
             idx
         } else {
-            self.ports.push(Some(file));
-            self.ports.len() - 1
+            self.table.push(Some(file));
+            self.table.len() - 1
         }
     }
-    pub fn close(&mut self, fd: usize) -> Option<FileArc> {
-        if let Some(file) = self.ports.get_mut(fd) {
+    pub fn close(&mut self, fd: usize) -> Option<FileBox> {
+        if let Some(file) = self.table.get_mut(fd) {
             file.take()
         } else {
             None
         }
     }
-    pub fn get(&self, fd: usize) -> Option<&FileArc> {
-        if let Some(file) = self.ports.get(fd) {
+    pub fn get(&self, fd: usize) -> Option<&FileBox> {
+        if let Some(file) = self.table.get(fd) {
             file.as_ref()
         } else {
             None
@@ -158,10 +166,24 @@ impl FdTable {
     }
 }
 
-// 子进程必须由父进程退出，如果子进程退出自己将发生异常
+#[inline(always)]
+fn get_sp() -> usize {
+    let ret: usize;
+    unsafe {
+        asm! {r"
+            mv {ret}, sp
+            ",
+            ret = out(reg) ret
+        }
+    }
+    ret
+}
+
+/// 退出任务时不能在退出任务的内核栈上
 impl Drop for TaskControlBlock {
     fn drop(&mut self) {
-        let ksp = self.trap_context().ksp;
+        let ksp = self.trap_context().get_ksp_bottom();
+        assert!(!(ksp..(ksp + KERNEL_STACK_SIZE)).contains(&get_sp()));
         remove_kernel_stack(VirtAddr::from(ksp).into());
         // info!("Drop app {}", self.get_pid());
     }
@@ -176,10 +198,12 @@ impl TaskControlBlock {
         let trap_cx = TrapContext::init(entry, usp, ksp_bottom, kernel_token());
         Arc::new(Self {
             pid,
-            state: Mutex::new(TaskStatus::Ready),
-            tree: Mutex::new(ProcessTree::default()),
-            fd_table: STRefCell::new(FdTable::new()),
-            context: STRefCell::new(Context::new(memory_set, trap_cx)),
+            shared_state: Arc::new(SharedStatus::new()),
+            // state: Mutex::new(TaskStatus::Ready),
+            tree: RefCell::new(ProcessTree::default()),
+            fd_table: RefCell::new(FdTable::new()),
+            context: RefCell::new(Context::new(memory_set, trap_cx)),
+            // exit_code: Mutex::new(None),
         })
     }
 
@@ -190,8 +214,14 @@ impl TaskControlBlock {
 
     pub fn exec(&self, elf: ElfFile, _args: Vec<String>) {
         let (memory_set, entry, usp) = MemorySet::from_elf(&elf);
-        let trap_cx = TrapContext::init(entry, usp, self.trap_context().ksp, kernel_token());
+        let trap_cx = TrapContext::init(
+            entry,
+            usp,
+            self.trap_context().get_ksp_bottom(),
+            kernel_token(),
+        );
         *self.context.borrow_mut() = Context::new(memory_set, trap_cx);
+        todo!()
     }
 
     pub fn fork(self: &Arc<Self>) -> Arc<Self> {
@@ -200,57 +230,62 @@ impl TaskControlBlock {
         push_kernel_stack(ksp_top.into(), ksp_bottom.into());
         let memory_set = MemorySet::from_existed(&self.context.borrow().memory_set);
         let mut trap_cx = self.trap_context().clone();
-        trap_cx.ksp = ksp_bottom;
-        trap_cx.reg_file.a[0] = 0;
+        // 设置初始内核栈，所以是安全的
+        unsafe { trap_cx.set_ksp_bottom(ksp_bottom) };
+        trap_cx.set_return(0);
         let result = Arc::new(Self {
             pid,
-            state: Mutex::new(TaskStatus::Ready),
-            tree: Mutex::new(ProcessTree::default()),
-            fd_table: STRefCell::new(self.fd_table.borrow().clone()),
-            context: STRefCell::new(Context::new(memory_set, trap_cx)),
+            shared_state: Arc::new(SharedStatus::new()),
+            // state: Mutex::new(TaskStatus::Ready),
+            tree: RefCell::new(ProcessTree::default()),
+            fd_table: RefCell::new(self.fd_table.borrow().clone()),
+            context: RefCell::new(Context::new(memory_set, trap_cx)),
+            // exit_code: Mutex::new(None),
         });
-        result.set_parent(self);
+        // 初始化，安全
+        unsafe { result.set_parent(self) };
         result
     }
 
-    pub fn run(&self, hartid: usize) {
-        self.trap_context().hartid = hartid;
-        *self.state.lock() = TaskStatus::Running;
-        // processor.set_current(self)
-    }
+    // pub fn run(&self, hartid: usize) {
+    //     self.trap_context().hartid = hartid;
+    //     *self.state.lock() = TaskStatus::Running;
+    //     // processor.set_current(self)
+    // }
 
-    pub fn ready(&self) {
-        *self.state.lock() = TaskStatus::Ready;
-        // TASK_MANAGER.push(self);
-        // self.inner.borrow_mut().set_state(TaskStatus::Ready);
-    }
+    // pub fn ready(&self) {
+    //     *self.state.lock() = TaskStatus::Ready;
+    //     // TASK_MANAGER.push(self);
+    //     // self.inner.borrow_mut().set_state(TaskStatus::Ready);
+    // }
 
     pub fn is_ready(&self) -> bool {
-        matches!(*self.state.lock(), TaskStatus::Ready)
-    }
-
-    pub fn block(self: &Arc<Self>, tigger: FutureBox) {
-        *self.state.lock() = TaskStatus::Blocked(tigger);
+        matches!(*self.shared_state.state.lock(), TaskStatus::Ready)
     }
 
     pub fn exit(&self, code: i32) {
-        let mut state = self.state.lock();
-        match *state {
-            TaskStatus::Exited(_) => (),
-            _ => {
-                // info!("App[{}] exit with code {}", self.get_pid(), code);
-                let children = &mut self.tree.lock().children;
-                while let Some(task) = children.pop() {
-                    task.exit(code);
-                }
-                *state = TaskStatus::Exited(code)
-            }
-        }
+        *self.shared_state.state.lock() = TaskStatus::Exited;
+        // *self.state.lock() = TaskStatus::Exited;
+        *self.shared_state.exit_code.lock() = Some(code);
     }
 
-    pub fn find_child(&self, pid: isize) -> Option<(usize, Arc<Self>)> {
+    pub fn set_state(&self, state: TaskStatus) {
+        assert_ne!(state, TaskStatus::Exited);
+        *self.shared_state.state.lock() = state;
+    }
+
+    // pub fn block(self: &Arc<Self>, tigger: FutureBox) {
+    //     *self.state.lock() = TaskStatus::Wait(tigger);
+    // }
+
+    // pub fn exit(&self, code: i32) {
+    //     *self.state.lock() = TaskStatus::Exited(code);
+    // }
+
+    /// 获取其它线程的任务是不安全的，因为 `TaskControlBlock` 不是线程安全的
+    pub unsafe fn find_child(&self, pid: isize) -> Option<(usize, Arc<Self>)> {
         self.tree
-            .lock()
+            .borrow()
             .children
             .iter()
             .enumerate()
@@ -262,15 +297,12 @@ impl TaskControlBlock {
                 }
             })
     }
-    #[inline]
-    fn memory_set(&self) -> *mut MemorySet {
-        &self.context.borrow().memory_set as *const _ as *mut MemorySet
-    }
+
     pub fn task_context(&self) -> *mut TaskContext {
         &self.context.borrow().task_cx as *const _ as *mut TaskContext
     }
     #[inline]
-    pub fn trap_context(&self) -> &'static mut TrapContext {
+    pub fn trap_context(&self) -> &mut TrapContext {
         unsafe { self.context.borrow().trap_cx.as_type() }
     }
     #[inline]
@@ -278,22 +310,19 @@ impl TaskControlBlock {
         self.pid.id
     }
 
-    pub fn set_parent(self: &Arc<Self>, parent: &Arc<Self>) {
-        parent.tree.lock().children.push(self.clone());
+    /// 父子任务必须是同一个线程的
+    pub unsafe fn set_parent(self: &Arc<Self>, parent: &Arc<Self>) {
+        parent.tree.borrow_mut().children.push(self.clone());
         // parent.inner.borrow_mut().children.push(self.clone());
-        self.tree.lock().parent = Some(Arc::downgrade(parent));
+        self.tree.borrow_mut().parent = Some(Arc::downgrade(parent));
     }
 
     pub fn exit_code(&self) -> Option<i32> {
-        if let TaskStatus::Exited(code) = *self.state.lock() {
-            Some(code)
-        } else {
-            None
-        }
+        *self.shared_state.exit_code.lock()
     }
     #[inline]
-    pub fn space(&self) -> &'static mut MemorySet {
-        unsafe { &mut *self.memory_set() }
+    pub fn space(&self) -> &mut MemorySet {
+        unsafe { &mut (*self.context.as_ptr()).memory_set }
     }
 }
 
@@ -306,29 +335,23 @@ impl Context {
         }
         Self {
             memory_set,
-            task_cx: TaskContext::goto_trap_return(trap_cx.ksp, satp),
+            task_cx: TaskContext::goto_trap_return(trap_cx.get_ksp_bottom(), satp),
             trap_cx: cx_pa,
         }
     }
 }
 
-pub enum TaskStatus {
-    Exited(i32),
-    Ready,
-    Running,
-    Blocked(FutureBox),
-}
 
-impl Debug for TaskStatus {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Exited(arg0) => f.debug_tuple("Exited").field(arg0).finish(),
-            Self::Ready => write!(f, "Ready"),
-            Self::Running => write!(f, "Running"),
-            Self::Blocked(_) => write!(f, "Blocked"),
-        }
-    }
-}
+// impl Debug for TaskStatus {
+//     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+//         match self {
+//             Self::Exited(arg0) => f.debug_tuple("Exited").field(arg0).finish(),
+//             Self::Ready => write!(f, "Ready"),
+//             Self::Running => write!(f, "Running"),
+//             Self::Wait => write!(f, "Blocked"),
+//         }
+//     }
+// }
 
 // impl TaskStatus {
 //     pub fn replace(&mut self, new: TaskStatus) -> TaskStatus {
@@ -342,6 +365,7 @@ impl Debug for TaskStatus {
 //     }
 // }
 
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 // pub enum TaskStatusDisc {
 //     Exited,
 //     Ready,
@@ -355,7 +379,7 @@ impl Debug for TaskStatus {
 //             TaskStatus::Exited(_) => TaskStatusDisc::Exited,
 //             TaskStatus::Ready => TaskStatusDisc::Ready,
 //             TaskStatus::Running => TaskStatusDisc::Running,
-//             TaskStatus::Blocked(_) => TaskStatusDisc::Blocked,
+//             TaskStatus::Wait(_) => TaskStatusDisc::Blocked,
 //         }
 //     }
 // }

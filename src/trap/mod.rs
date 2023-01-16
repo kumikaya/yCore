@@ -13,7 +13,7 @@ use riscv::register::{
 use crate::{
     config::{TRAMPOLINE, TRAP_CONTEXT},
     syscall::Syscall,
-    task::{processor::{Hart, Schedule}, scheduler::get_processor},
+    task::{processor::Schedule, scheduler::get_processor},
     timer::set_next_trigger,
 };
 
@@ -34,6 +34,7 @@ pub fn set_kernel_trap_entry() {
 
 
 pub fn init() {
+    set_kernel_trap_entry();
     unsafe {
         sstatus::clear_sie();
         sie::set_stimer();
@@ -45,19 +46,18 @@ pub fn init() {
 
 #[allow(unused)]
 /// 该函数内的强引用可能需要手动释放
-pub unsafe extern "C" fn trap_handler(hartid: usize) -> ! {
+pub unsafe extern "C" fn trap_handler() -> ! {
     set_kernel_trap_entry();
-    let proc = get_processor(hartid);
+    let proc = get_processor();
     let task = proc.current_task();
     let cx = task.trap_context();
     let satp = task.space().token();
     drop(task);
-    let status = scause::read();
-    match status.cause() {
+    match scause::read().cause() {
         Trap::Exception(Exception::UserEnvCall) => {
-            cx.sepc += 4;
+            cx.set_next_sepc();
             let result = proc.syscall(cx.syscall_id(), cx.syscall_args());
-            cx.set_result(result as usize);
+            cx.set_return(result as usize);
         }
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
             proc.yield_();
@@ -81,7 +81,6 @@ pub unsafe extern "C" fn trap_handler(hartid: usize) -> ! {
 #[repr(align(4))]
 pub unsafe fn kernel_trap_entry() {
     use riscv::register::sepc;
-    loop {}
     println!("stval = {:#x}, sepc = {:#x}", stval::read(), sepc::read());
     panic!("a trap {:?} from kernel!", scause::read().cause());
 }
@@ -131,8 +130,8 @@ pub unsafe extern "C" fn user_trap_entry() {
         sd t2, 1*8(sp)
         ld t0, 34*8(sp)
         ld t1, 35*8(sp)
-        # hartid 作为参数
-        ld a0, 36*8(sp)
+        # 恢复hartid到tp
+        ld tp, 36*8(sp)
         # 切换到内核栈
         ld sp, 33*8(sp)
         # 切换到内核空间
@@ -161,7 +160,6 @@ pub unsafe fn user_trap_return(satp: usize) -> ! {
     set_user_trap_entry();
     let restore = (user_restore as usize - user_trap_entry as usize) + TRAMPOLINE;
     asm! {r"
-        fence.i
         jr {restore}",
         restore = in(reg) restore,
         in("a0") satp,

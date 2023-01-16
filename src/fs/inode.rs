@@ -113,7 +113,7 @@ bitflags! {
     }
 }
 
-
+#[allow(unused)]
 pub fn inode_test() {
     let test_dir = ROOT_INODE.create("test", FileType::Directory).unwrap();
     let file = test_dir.create("hello.txt", FileType::File).unwrap();
@@ -151,14 +151,11 @@ pub fn open_file(path: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     }
 }
 
-pub fn open_app(path: &str, parent: Option<&Arc<TaskControlBlock>>) -> Option<Arc<TaskControlBlock>> {
+pub fn open_app(path: &str) -> Option<Arc<TaskControlBlock>> {
     if let Some(app_inode) = open_file(&path, OpenFlags::RDONLY) {
         let app_data = app_inode.read_all();
         let elf = ElfFile::new(app_data.as_slice()).unwrap();
         let task = TaskControlBlock::from_elf(elf);
-        if let Some(parent) = parent {
-            task.set_parent(parent);
-        }
         Some(task)
     } else {
         None

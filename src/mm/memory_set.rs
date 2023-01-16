@@ -149,7 +149,7 @@ impl MapArea {
                     ppn
                 }
             };
-            page_table.map(vpn, ppn, PTEFlags::from_bits_truncate(self.perm.bits()));
+            page_table.map(vpn, ppn, PTEFlags::from_bits_truncate(self.perm.bits())).unwrap();
         }
     }
 
@@ -157,7 +157,7 @@ impl MapArea {
         if let MapType::Framed = self.map_type {
             self.data_frames.remove(&vpn);
         }
-        page_table.unmap_uncheck(vpn);
+        page_table.unmap_uncheck(vpn).unwrap();
     }
 
     pub fn unmap(&mut self, page_table: &mut PageTable) {
@@ -284,7 +284,7 @@ impl MemorySet {
             VirtAddr::from(TRAMPOLINE).into(),
             PhysAddr::from(strampoline as usize).into(),
             PTEFlags::R | PTEFlags::X
-        );
+        ).unwrap();
         
     }
 
@@ -347,19 +347,19 @@ impl MemorySet {
         let rodata = (srodata as usize)..(erodata as usize);
         let data =     (sdata as usize)..(edata as usize);
         let bss =      (sbss as usize)..(ebss as usize);
-        let phys_mem = (ekernel as usize)..MEMORY_END;
+        let phys_mem = (ekernel as usize)..(MEMORY_END & !(PAGE_SIZE - 1));
         let stack =    (stack_top as usize)..(stack_bottom as usize);
         assert!(text.start %     PAGE_SIZE == 0);
         assert!(rodata.start %   PAGE_SIZE == 0);
         assert!(data.start %     PAGE_SIZE == 0);
         assert!(bss.start %      PAGE_SIZE == 0);
         assert!(phys_mem.start % PAGE_SIZE == 0);
-        // info!(".text:   [{:#x}, {:#x}), {}kb", text.0,     text.1,     (text.1 -     text.0) /     1024);
-        // info!(".rodata: [{:#x}, {:#x}), {}kb", rodata.0,   rodata.1,   (rodata.1 -   rodata.0) /   1024);
-        // info!(".data:   [{:#x}, {:#x}), {}kb", data.0,     data.1,     (data.1 -     data.0) /     1024);
-        // info!(".stack:  [{:#x}, {:#x}), {}kb", stack.0,    stack.1,    (stack.1 -    stack.0) /    1024);
-        // info!(".bss:    [{:#x}, {:#x}), {}kb", stack.1,    bss.1,      (bss.1 -      bss.0) /      1024);
-        // info!(".other:  [{:#x}, {:#x}), {}kb", phys_mem.0, phys_mem.1, (phys_mem.1 - phys_mem.0) / 1024);
+        info!(".text:   [{:#x}, {:#x}), {}kb", text.start,     text.end,     (text.end -     text.start) /     1024);
+        info!(".rodata: [{:#x}, {:#x}), {}kb", rodata.start,   rodata.end,   (rodata.end -   rodata.start) /   1024);
+        info!(".data:   [{:#x}, {:#x}), {}kb", data.start,     data.end,     (data.end -     data.start) /     1024);
+        info!(".stack:  [{:#x}, {:#x}), {}kb", stack.start,    stack.end,    (stack.end -    stack.start) /    1024);
+        info!(".bss:    [{:#x}, {:#x}), {}kb", stack.end,      bss.end,      (bss.end -      bss.start) /      1024);
+        info!(".other:  [{:#x}, {:#x}), {}kb", phys_mem.start, phys_mem.end, (phys_mem.end - phys_mem.start) / 1024);
         // maping text segment
         result.push(
             MapArea::from_range(

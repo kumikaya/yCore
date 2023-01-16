@@ -19,10 +19,11 @@ mod timer;
 mod tools;
 mod trap;
 
-
 use crate::{
     config::{HART_NUMBER, KERNEL_INIT_STACK_SIZE},
-    tools::logging, mm::memory_set,
+    mm::memory_set,
+    task::scheduler,
+    tools::logging,
 };
 use core::{
     arch::asm,
@@ -30,6 +31,9 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 extern crate alloc;
+
+#[macro_use]
+extern crate anyhow;
 
 #[cfg(feature = "qemu")]
 #[path = "boards/qemu.rs"]
@@ -82,7 +86,8 @@ fn clear_bss() {
     }
 }
 
-pub fn rust_main(hartid: usize, _dtb_pa: usize) -> ! {
+pub fn rust_main(hartid: usize, _device_tree_addr: usize) -> ! {
+    scheduler::set_hartid(hartid);
     static GENESIS: AtomicBool = AtomicBool::new(true);
     if GENESIS.swap(false, Ordering::AcqRel) {
         // 初始化bss段
@@ -96,8 +101,8 @@ pub fn rust_main(hartid: usize, _dtb_pa: usize) -> ! {
         // 启动所有硬件线程
         sbi::start_all_hart();
     }
-    // 中断初始化
     trap::init();
+    // 中断初始化
     memory_set::init_kernel_space();
-    task::entrap_task(hartid)
+    task::entrap_task()
 }

@@ -1,7 +1,10 @@
+use log::warn;
+
 use crate::{
-    mm::{address::VirtAddr, memory_set::MapPerm, page_table::PTEFlags},
-    task::processor::Hart,
+    mm::{address::VirtAddr, memory_set::MapPerm, page_table::PTEFlags}, task::processor::Schedule, syscall::EXEC_FAIL, syscall_unwarp,
 };
+
+use super::EXEC_SUCCEE;
 
 
 pub(super) trait SysMm {
@@ -10,14 +13,14 @@ pub(super) trait SysMm {
 }
 
 
-impl<T: Hart> SysMm for T {
+impl<T: Schedule> SysMm for T {
     fn sys_munmap(&self, va: VirtAddr, len: usize) -> isize {
         let range = va.floor()..va.offset(len as isize).ceil();
         let user_space = self.current_task().space();
         for vpn in range {
-            user_space.free(vpn).unwrap();
+            syscall_unwarp!(user_space.free(vpn));
         }
-        0
+        EXEC_SUCCEE
     }
 
     fn sys_mmap(&self, va: VirtAddr, len: usize, perm: usize, _fd: usize) -> isize {
@@ -27,8 +30,8 @@ impl<T: Hart> SysMm for T {
         let range = va.floor()..va.offset(len as isize).ceil();
         let user_space = self.current_task().space();
         for vpn in range {
-            user_space.malloc(vpn, flags).unwrap();
+            syscall_unwarp!(user_space.malloc(vpn, flags));
         }
-        0
+        EXEC_SUCCEE
     }
 }

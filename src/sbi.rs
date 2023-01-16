@@ -3,7 +3,7 @@ use core::arch::asm;
 use log::info;
 use sbi_rt::{self, SbiRet};
 
-use crate::{println, rust_main, _start, config::HART_NUMBER};
+use crate::{println, rust_main, _start, config::HART_NUMBER, task::scheduler::get_hartid};
 const SBI_SET_TIMER: usize = 0;
 const SBI_CONSOLE_PUTCHAR: usize = 1;
 const SBI_CONSOLE_GETCHAR: usize = 2;
@@ -47,6 +47,7 @@ pub fn shutdown() -> ! {
     panic!("It should shutdown!");
 }
 
+
 #[inline]
 pub fn hart_start(hartid: usize, start_addr: usize, opaque: usize) {
     sbi_rt::hart_start(hartid, start_addr, opaque);
@@ -54,6 +55,8 @@ pub fn hart_start(hartid: usize, start_addr: usize, opaque: usize) {
 
 pub fn start_all_hart() {
     for id in 0..HART_NUMBER {
-        sbi_rt::hart_start(id, _start as usize, 0);
+        if get_hartid() != id {
+            sbi_rt::hart_start(id, _start as usize, 0);
+        }
     }
 }
