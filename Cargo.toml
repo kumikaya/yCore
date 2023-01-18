@@ -20,6 +20,8 @@ riscv = { path = "../rcore-riscv", features = ["inline-asm"] }
 sbi-rt = "0.0.2"
 spin = "0.9"
 dtb-walker = { path = "../dtb-walker" }
+fatfs = { path = "../rust-fatfs", default-features = false, features = ["alloc"]}
+# fscommon ={ path = "../rust-fscommon", default-features = false }
 [features]
 default = ["qemu"]
 debug_test = []
@@ -27,6 +29,9 @@ qemu = []
 
 # [profile.release]
 # opt-level = 0
+
+[profile.release]
+debug = true
 
 [profile.dev.package."*"]
 opt-level = 3

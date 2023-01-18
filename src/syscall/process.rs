@@ -1,4 +1,4 @@
-use alloc::sync::Arc;
+use alloc::{sync::Arc, string::String};
 use bitflags::bitflags;
 
 use crate::{
@@ -53,9 +53,10 @@ impl<T: Schedule> SysProcess for T {
     fn sys_exec(&self, ptr: VirtAddr, len: usize, flags: u32) -> isize {
         let flags = ExecFlags::from_bits_truncate(flags);
         let current_task = self.current_task();
-        let path = unsafe { syscall_unwarp!(translated_string(current_task.space(), ptr, len)) };
-        if let Some(task) = open_app(&path) {
-            unsafe { task.set_parent(current_task) };
+        let mut args = unsafe { syscall_unwarp!(translated_string(current_task.space(), ptr, len)) };
+        let path: String = args.drain(..args.find('\0').unwrap_or(args.len())).collect();
+        if let Some(task) = open_app(&path, "hello world") {
+            unsafe { task.set_parent(&current_task) };
             let pid = task.get_pid();
             if flags.contains(ExecFlags::INHERIT) {
                 *task.fd_table.borrow_mut() = current_task.fd_table.borrow().clone();

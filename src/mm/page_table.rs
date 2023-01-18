@@ -1,12 +1,11 @@
-
 use super::{
     address::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum},
     frame_allocator::{frame_alloc, FrameTracker},
     memory_set::MemorySet,
 };
 use crate::config::PAGE_SIZE;
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use anyhow::{Result, Error, anyhow};
+use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
+use anyhow::{anyhow, Result};
 use bitflags::bitflags;
 use riscv::register::satp;
 
@@ -82,7 +81,7 @@ impl PageTable {
         let root_frame = frame_alloc().unwrap();
         Self {
             root_ppn: root_frame.ppn,
-            frames: alloc::vec![root_frame],
+            frames: vec![root_frame],
             leafs: BTreeMap::new(),
         }
     }
@@ -176,7 +175,6 @@ impl PageTable {
         //     "vpn {:?} is mapped before mapping",
         //     vpn
         // );
-        
     }
 
     pub fn unmap_uncheck(&mut self, vpn: VirtPageNum) -> Result<()> {
@@ -199,7 +197,7 @@ pub unsafe fn translated_byte_buffer(
     space: &MemorySet,
     ptr: VirtAddr,
     len: usize,
-) -> Result<Vec<&'static mut [u8]>> {
+) -> Result<Vec<&mut [u8]>> {
     let mut start = ptr;
     let end = ptr.offset(len as isize);
     let mut result = Vec::new();
@@ -222,28 +220,30 @@ pub unsafe fn translated_byte_buffer(
 
 pub unsafe fn translated_string(space: &MemorySet, ptr: VirtAddr, len: usize) -> Result<String> {
     let raw_buffer = translated_byte_buffer(space, ptr, len)?;
-    let buffer = raw_buffer.iter().fold(Vec::<u8>::with_capacity(len), |mut acc, x| {
-        acc.extend(x.iter());
-        acc
-    });
+    let buffer = raw_buffer
+        .iter()
+        .fold(Vec::<u8>::with_capacity(len), |mut acc, x| {
+            acc.extend(x.iter());
+            acc
+        });
     String::from_utf8(buffer).map_err(|err| anyhow!("{}", err))
 }
 
-pub unsafe fn translated_refmut<T>(space: &MemorySet, ptr: *mut T) -> &'static mut T {
+pub unsafe fn translated_refmut<'a, T: 'static>(space: &'a MemorySet, ptr: *mut T) -> &'a mut T {
     //println!("into translated_refmut!");
     let va = ptr as usize;
     space.va_translate(VirtAddr::from(va)).unwrap().as_type()
 }
 
 ///Array of u8 slice that user communicate with os
-pub struct BufferHandle {
+pub struct BufferHandle<'a> {
     ///U8 vec
-    pub buffers: Vec<&'static mut [u8]>,
+    pub buffers: Vec<&'a mut [u8]>,
 }
 
-impl BufferHandle {
+impl<'a> BufferHandle<'a> {
     ///Create a `UserBuffer` by parameter
-    pub fn new(buffers: Vec<&'static mut [u8]>) -> Self {
+    pub fn new(buffers: Vec<&'a mut [u8]>) -> Self {
         Self { buffers }
     }
     ///Length of `UserBuffer`
@@ -270,10 +270,10 @@ impl BufferHandle {
     }
 }
 
-impl IntoIterator for BufferHandle {
-    type Item = *mut u8;
-    type IntoIter = UserBufferIterator;
-    fn into_iter(self) -> Self::IntoIter {
+impl<'a> IntoIterator for BufferHandle<'a> {
+    type Item = &'a mut u8;
+    type IntoIter = UserBufferIterator<'a>;
+    fn into_iter(self) -> UserBufferIterator<'a> {
         UserBufferIterator {
             buffers: self.buffers,
             current_buffer: 0,
@@ -282,26 +282,26 @@ impl IntoIterator for BufferHandle {
     }
 }
 /// Iterator of `UserBuffer`
-pub struct UserBufferIterator {
-    buffers: Vec<&'static mut [u8]>,
+pub struct UserBufferIterator<'a> {
+    buffers: Vec<&'a mut [u8]>,
     current_buffer: usize,
     current_idx: usize,
 }
 
-impl Iterator for UserBufferIterator {
-    type Item = *mut u8;
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a> Iterator for UserBufferIterator<'a> {
+    type Item = &'a mut u8;
+    fn next<'b>(&'b mut self) -> Option<&'a mut u8> {
         if self.current_buffer >= self.buffers.len() {
             None
         } else {
-            let r = &mut self.buffers[self.current_buffer][self.current_idx] as *mut _;
+            let r = (&mut self.buffers[self.current_buffer][self.current_idx]) as *mut u8;
             if self.current_idx + 1 == self.buffers[self.current_buffer].len() {
                 self.current_idx = 0;
                 self.current_buffer += 1;
             } else {
                 self.current_idx += 1;
             }
-            Some(r)
+            Some(unsafe { &mut *r })
         }
     }
 }

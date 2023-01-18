@@ -3,7 +3,8 @@
     "lldb.showDisassembly": "auto",
     "lldb.dereferencePointers": true,
     "lldb.consoleMode": "commands",
-    "rust-analyzer.checkOnSave.extraArgs": [
+    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.check.extraArgs": [
         "--target",
         "riscv64gc-unknown-none-elf"
     ]

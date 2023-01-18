@@ -1,4 +1,4 @@
-use core::{hint, task::Poll, cell::Cell};
+use core::{hint, task::Poll, cell::{Cell, RefCell}};
 
 use alloc::collections::VecDeque;
 use spin::Mutex;
@@ -15,6 +15,7 @@ use super::{
 pub struct Processor {
     pub current: Cell<Option<Task>>,
     queue: TaskQueue,
+    switch_trampoline: RefCell<TaskContext>,
 }
 
 pub struct BlockedTask {
@@ -43,11 +44,12 @@ pub struct TaskQueue {
 }
 
 impl Processor {
-    pub fn new() -> Self {
+    pub fn new(hartid: usize) -> Self {
         Self {
             // hartid,
             current: Cell::new(None),
             queue: TaskQueue::new(),
+            switch_trampoline: RefCell::new(TaskContext::switch_trampoline(hartid)),
             // task_manager: task_maneger,
         }
     }
@@ -93,10 +95,11 @@ impl Processor {
         if unsafe { (*self.current.as_ptr()).is_none() } {
             let task = self.queue.pop_spin();
             next = task.task_context();
+            
             self.set_current(Some(task));
         } else {
             // 当无法找到下一个任务时切换到初始化栈 ,避免在当前栈退出任务
-            next = &mut TaskContext::switch_trampoline() as *mut TaskContext;
+            next = self.switch_trampoline.as_ptr();
         }
         static mut HOLE: TaskContext = TaskContext::default();
         unsafe { __switch(&mut HOLE as *mut TaskContext, next) };
@@ -120,7 +123,7 @@ impl Processor {
 }
 
 pub trait Schedule {
-    fn current_task(&self) -> &Task;
+    fn current_task(&self) -> Task;
     fn exit_current(&self, code: i32) -> !;
     fn blocking_current<T>(&self, tigger: T)
     where
@@ -130,8 +133,8 @@ pub trait Schedule {
 
 impl Schedule for Processor {
     #[inline]
-    fn current_task(&self) -> &Task {
-        unsafe { (*self.current.as_ptr()).as_ref().unwrap() }
+    fn current_task(&self) -> Task {
+        unsafe { (*self.current.as_ptr()).clone().unwrap() }
     }
     fn exit_current(&self, code: i32) -> ! {
         self.current_task().exit(code);

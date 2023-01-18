@@ -16,7 +16,8 @@ pub(super) trait SysMm {
 impl<T: Schedule> SysMm for T {
     fn sys_munmap(&self, va: VirtAddr, len: usize) -> isize {
         let range = va.floor()..va.offset(len as isize).ceil();
-        let user_space = self.current_task().space();
+        let task = self.current_task();
+        let user_space = task.space();
         for vpn in range {
             syscall_unwarp!(user_space.free(vpn));
         }
@@ -28,7 +29,8 @@ impl<T: Schedule> SysMm for T {
         assert_ne!(perm & MapPerm::RWX, MapPerm::empty());
         let flags = PTEFlags::from_bits_truncate(perm.bits());
         let range = va.floor()..va.offset(len as isize).ceil();
-        let user_space = self.current_task().space();
+        let task = self.current_task();
+        let user_space = task.space();
         for vpn in range {
             syscall_unwarp!(user_space.malloc(vpn, flags));
         }

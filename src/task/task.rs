@@ -1,4 +1,4 @@
-use core::{arch::asm, cell::RefCell, fmt::Debug};
+use core::{arch::asm, cell::RefCell, fmt::Debug, slice, mem::size_of};
 
 use alloc::{
     string::String,
@@ -17,8 +17,9 @@ use crate::{
     },
     mm::{
         address::{PhysAddr, VirtAddr},
-        memory_set::{kernel_token, push_kernel_stack, remove_kernel_stack, MemorySet},
+        memory_set::{kernel_token, push_kernel_stack, remove_kernel_stack, MemorySet}, page_table::{translated_refmut, BufferHandle, translated_byte_buffer},
     },
+    tools::align_ceil,
     trap::{context::TrapContext, init_app_trap_return},
     KERNEL_STACK,
 };
@@ -26,7 +27,6 @@ use crate::{
 use super::{
     pid::{pid_alloc, PidHandle},
     processor::switch_trampoline,
-    scheduler::get_hartid,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -58,9 +58,9 @@ impl TaskContext {
         result
     }
 
-    pub fn switch_trampoline() -> Self {
-        let ksp = unsafe { &KERNEL_STACK as *const u8 as usize }
-            + (get_hartid() + 1) * KERNEL_INIT_STACK_SIZE;
+    pub fn switch_trampoline(hartid: usize) -> Self {
+        let ksp =
+            unsafe { &KERNEL_STACK as *const u8 as usize } + (hartid + 1) * KERNEL_INIT_STACK_SIZE;
         Self {
             ra: switch_trampoline as usize,
             ksp,
@@ -81,7 +81,6 @@ pub struct TaskControlBlock {
 
 // unsafe impl Sync for TaskControlBlock {}
 // unsafe impl Send for TaskControlBlock {}
-
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum TaskStatus {
@@ -189,6 +188,25 @@ impl Drop for TaskControlBlock {
     }
 }
 
+// 向用户栈压入参数，返回新的用户栈地址
+fn push_args(memory_set: &MemorySet, mut usp: usize, args: &str) -> usize {
+    let args_len = args.len();
+    // 8字节对齐
+    let all_len = align_ceil::<u64>(args_len + size_of::<usize>());
+    usp -= all_len;
+    unsafe {
+        // 向栈写入参数长度
+        *translated_refmut(memory_set, usp as *const usize as *mut usize) = args_len;
+        let args_addr = usp + size_of::<usize>();
+        let buffer = BufferHandle::new(translated_byte_buffer(memory_set, args_addr.into(), args_len).unwrap());
+        // 写入参数
+        for (dst, src) in buffer.into_iter().zip(args.as_bytes().iter()) {
+            *dst = *src;
+        }
+    }
+    usp
+}
+
 impl TaskControlBlock {
     pub fn new(memory_set: MemorySet, entry: usize, usp: usize) -> Arc<Self> {
         let pid = pid_alloc();
@@ -199,16 +217,16 @@ impl TaskControlBlock {
         Arc::new(Self {
             pid,
             shared_state: Arc::new(SharedStatus::new()),
-            // state: Mutex::new(TaskStatus::Ready),
             tree: RefCell::new(ProcessTree::default()),
             fd_table: RefCell::new(FdTable::new()),
             context: RefCell::new(Context::new(memory_set, trap_cx)),
-            // exit_code: Mutex::new(None),
         })
     }
 
-    pub fn from_elf(elf: ElfFile) -> Arc<Self> {
-        let (memory_set, entry, usp) = MemorySet::from_elf(&elf);
+
+    pub fn from_elf(elf: ElfFile, args: &str) -> Arc<Self> {
+        let (memory_set, entry, mut usp) = MemorySet::from_elf(&elf);
+        usp = push_args(&memory_set, usp, args);
         Self::new(memory_set, entry, usp)
     }
 
@@ -299,11 +317,11 @@ impl TaskControlBlock {
     }
 
     pub fn task_context(&self) -> *mut TaskContext {
-        &self.context.borrow().task_cx as *const _ as *mut TaskContext
+        &self.context.borrow_mut().task_cx as *const _ as *mut TaskContext
     }
     #[inline]
     pub fn trap_context(&self) -> &mut TrapContext {
-        unsafe { self.context.borrow().trap_cx.as_type() }
+        unsafe { self.context.borrow_mut().trap_cx.as_type() }
     }
     #[inline]
     pub fn get_pid(&self) -> isize {
@@ -340,7 +358,6 @@ impl Context {
         }
     }
 }
-
 
 // impl Debug for TaskStatus {
 //     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

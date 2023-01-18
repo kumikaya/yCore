@@ -4,7 +4,7 @@
 #![feature(const_trait_impl, step_trait)]
 #![feature(panic_info_message, alloc_error_handler)]
 #![feature(fn_align, naked_functions, asm_const, default_free_fn)]
-
+#![feature(allow_internal_unstable)]
 #[macro_use]
 mod console;
 mod config;
@@ -18,6 +18,9 @@ mod task;
 mod timer;
 mod tools;
 mod trap;
+
+pub use lang_items::half::*;
+use log::{info, warn};
 
 use crate::{
     config::{HART_NUMBER, KERNEL_INIT_STACK_SIZE},

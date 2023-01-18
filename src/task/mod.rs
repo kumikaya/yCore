@@ -47,7 +47,7 @@ pub unsafe extern "C" fn __switch(current: *mut TaskContext, next: *mut TaskCont
 
 pub fn add_initproc() {
     // 添加初始程序
-    let initproc = open_app("initproc").unwrap();
+    let initproc = open_app("initproc", "").unwrap();
     add_task(initproc);
 }
 

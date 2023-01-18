@@ -1,13 +1,11 @@
 pub mod context;
 
 use core::arch::{asm, global_asm};
-
 use log::warn;
 use riscv::register::{
     mtvec::TrapMode,
     scause::{self, Exception, Interrupt, Trap},
-    sie,
-    stval, stvec, sstatus,
+    sie, sstatus, stval, stvec,
 };
 
 use crate::{
@@ -17,6 +15,7 @@ use crate::{
     timer::set_next_trigger,
 };
 
+use self::context::TrapContext;
 
 #[inline]
 fn set_user_trap_entry() {
@@ -32,7 +31,6 @@ pub fn set_kernel_trap_entry() {
     }
 }
 
-
 pub fn init() {
     set_kernel_trap_entry();
     unsafe {
@@ -42,15 +40,13 @@ pub fn init() {
     set_next_trigger();
 }
 
-
-
 #[allow(unused)]
 /// 该函数内的强引用可能需要手动释放
 pub unsafe extern "C" fn trap_handler() -> ! {
     set_kernel_trap_entry();
     let proc = get_processor();
     let task = proc.current_task();
-    let cx = task.trap_context();
+    let cx = &mut *(task.trap_context() as *const _ as *mut TrapContext);
     let satp = task.space().token();
     drop(task);
     match scause::read().cause() {
@@ -160,6 +156,7 @@ pub unsafe fn user_trap_return(satp: usize) -> ! {
     set_user_trap_entry();
     let restore = (user_restore as usize - user_trap_entry as usize) + TRAMPOLINE;
     asm! {r"
+        fence.i
         jr {restore}",
         restore = in(reg) restore,
         in("a0") satp,

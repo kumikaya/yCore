@@ -20,8 +20,8 @@ unsafe impl Send for Scheduler {}
 impl Scheduler {
     pub fn new(hart_num: usize) -> Self {
         let mut group = Vec::with_capacity(hart_num);
-        for _ in 0..hart_num {
-            group.push(Processor::new());
+        for hartid in 0..hart_num {
+            group.push(Processor::new(hartid));
         }
         Self { group }
     }
@@ -33,6 +33,7 @@ impl Scheduler {
     }
 
     pub fn add_task(&self, task: Task) {
+        // unsafe { task.trap_context().set_hartid(0) };
         // self.group[0].add_task(task);
         let (hartid, processor) = self
             .group

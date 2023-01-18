@@ -1,6 +1,6 @@
 #![allow(unused)] // 此行在文件最开头
 use core::arch::asm;
-use log::info;
+use log::{info, error};
 use sbi_rt::{self, SbiRet};
 
 use crate::{println, rust_main, _start, config::HART_NUMBER, task::scheduler::get_hartid};
@@ -14,15 +14,14 @@ const SBI_REMOTE_SFENCE_VMA: usize = 6;
 const SBI_REMOTE_SFENCE_VMA_ASID: usize = 7;
 const SBI_SHUTDOWN: usize = 8;
 
-fn sbi_call(which: usize, arg0: usize, arg1: usize, arg2: usize) -> usize {
+fn sbi_call(which: usize, args: [usize; 3]) -> usize {
     let mut result;
     unsafe {
         asm!(
-            "li a6, 0",
             "ecall",
-            inlateout("a0") arg0 => result,
-            in("a1") arg1,
-            in("a2") arg2,
+            inlateout("a0") args[0] => result,
+            in("a1") args[1],
+            in("a2") args[2],
             in("a7") which,
         );
     }
@@ -30,11 +29,11 @@ fn sbi_call(which: usize, arg0: usize, arg1: usize, arg2: usize) -> usize {
 }
 
 pub fn console_putchar(c: usize) {
-    sbi_call(SBI_CONSOLE_PUTCHAR, c, 0, 0);
+    sbi_call(SBI_CONSOLE_PUTCHAR, [c, 0, 0]);
 }
 
 pub fn console_getchar() -> usize {
-    sbi_call(SBI_CONSOLE_GETCHAR, 0, 0, 0)
+    sbi_call(SBI_CONSOLE_GETCHAR, [0, 0, 0])
 }
 
 #[inline]

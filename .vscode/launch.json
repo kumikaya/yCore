@@ -11,7 +11,7 @@
             "request": "attach",
             "name": "Attach to gdbserver",
             "autorun": [],
-            "executable": "${workspaceFolder}/target/riscv64gc-unknown-none-elf/debug/y_core",
+            "executable": "${workspaceFolder}/target/riscv64gc-unknown-none-elf/release/y_core",
             "target": "localhost:34110",
             "remote": true,
             "cwd": "${workspaceFolder}",

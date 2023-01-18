@@ -19,7 +19,7 @@ lazy_static! {
 pub fn list_apps() {
     println!("-APPS----");
     for app in ROOT_INODE.ls() {
-        println!("{}", app);
+        println!("{app}");
     }
     println!("---------");
 }
@@ -151,11 +151,11 @@ pub fn open_file(path: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     }
 }
 
-pub fn open_app(path: &str) -> Option<Arc<TaskControlBlock>> {
+pub fn open_app(path: &str, args: &str) -> Option<Arc<TaskControlBlock>> {
     if let Some(app_inode) = open_file(&path, OpenFlags::RDONLY) {
         let app_data = app_inode.read_all();
         let elf = ElfFile::new(app_data.as_slice()).unwrap();
-        let task = TaskControlBlock::from_elf(elf);
+        let task = TaskControlBlock::from_elf(elf, args);
         Some(task)
     } else {
         None

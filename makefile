@@ -1,16 +1,17 @@
 # Building
 TARGET := riscv64gc-unknown-none-elf
-MODE := debug
+USER_MODE := release
+MODE := release
 KERNEL_NAME = y_core
-KERNEL_ELF = target/$(TARGET)/$(MODE)/$(KERNEL_NAME)
+KERNEL_ELF = ./target/$(TARGET)/$(MODE)/$(KERNEL_NAME)
 KERNEL_BIN = $(KERNEL_ELF).bin
 FEATURES = 
 # debug_test
 QEMU_ARGS := 
 CARGO_ARGS :=
-gdb = true
-FS_IMG := ../user/target/$(TARGET)/$(MODE)/fs.img
-APPS := ../user/src/bin/*
+USER := ../user
+FS_IMG := $(USER)/target/$(TARGET)/$(USER_MODE)/fs.img
+APPS := $(USER)/src/bin/*
 # Log level: error | warn | info
 export LOG ?= info
 
@@ -18,14 +19,14 @@ test_build:
 	@cargo build --tests
 
 build:
-	@cargo build --features "$(FEATURES)"
+	@cargo build --features "$(FEATURES)" --$(MODE)
 
 $(APPS):
 
 fs-img: $(APPS)
 	@cd ../user && make build
 	@rm -f $(FS_IMG)
-	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/$(TARGET)/release/
+	@cd ../easy-fs-fuse && cargo run --$(USER_MODE) -- -s $(USER)/src/bin/ -t $(USER)/target/$(TARGET)/release/
 
 
 $(KERNEL_BIN): build
@@ -44,14 +45,14 @@ run_only:
       -machine virt \
       -nographic \
       -bios $(BOOTLOADER) \
-      -device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_ADDR) \
-	  -drive file=../user/target/riscv64gc-unknown-none-elf/release/fs.img,if=none,format=raw,id=x0 \
+	  -kernel $(KERNEL_ELF) \
+	  -drive file=$(FS_IMG),if=none,format=raw,id=x0 \
       -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
 	  -smp 2,cores=2,threads=1,sockets=1 \
 	  $(QEMU_ARGS)
 
 
-run: $(KERNEL_BIN) run_only
+run: build run_only
 
 # gdb connect the qemu
 cn:
