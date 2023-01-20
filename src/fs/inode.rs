@@ -1,19 +1,16 @@
-use crate::{drivers::block::BLOCK_DEVICE, mm::page_table::BufferHandle, println, task::task::TaskControlBlock};
+use crate::{drivers::block::BLOCK_DEVICE, mm::page_table::BufferHandle, println, task::task_block::{TaskControlBlock, Task}};
 use alloc::{sync::Arc, vec::Vec};
 use easy_fs::{EasyFileSystem, Inode, FileType};
-use lazy_static::lazy_static;
 use bitflags::bitflags;
-use spin::Mutex;
+use spin::{Mutex, Lazy};
 use xmas_elf::ElfFile;
 
 use super::{File, FileFlags};
 
-lazy_static! {
-    pub static ref ROOT_INODE: Arc<Inode> = {
-        let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
-        Arc::new(EasyFileSystem::root_inode(&efs))
-    };
-}
+pub static ROOT_INODE: Lazy<Arc<Inode>> = Lazy::new(||{
+    let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
+    Arc::new(EasyFileSystem::root_inode(&efs))
+});
 
 /// List all files in the filesystems
 pub fn list_apps() {
@@ -76,7 +73,7 @@ impl File for OSInode {
         let mut inner = self.inner.lock();
         let base_offset = inner.offset;
         for buffer in buffer_handle.buffers.iter_mut() {
-            let read_size = inner.inode.read_at(inner.offset, *buffer);
+            let read_size = inner.inode.read_at(inner.offset, buffer);
             if read_size == 0 {
                 break;
             }
@@ -89,7 +86,7 @@ impl File for OSInode {
         let mut inner = self.inner.lock();
         let base_offset = inner.offset;
         for buffer in &buffer_handle.buffers {
-            let wrtie_size = inner.inode.write_at(inner.offset, *buffer);
+            let wrtie_size = inner.inode.write_at(inner.offset, buffer);
             assert_eq!(wrtie_size, buffer.len());
             inner.offset += wrtie_size;
         }
@@ -151,8 +148,8 @@ pub fn open_file(path: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     }
 }
 
-pub fn open_app(path: &str, args: &str) -> Option<Arc<TaskControlBlock>> {
-    if let Some(app_inode) = open_file(&path, OpenFlags::RDONLY) {
+pub fn open_app(path: &str, args: &str) -> Option<Task> {
+    if let Some(app_inode) = open_file(path, OpenFlags::RDONLY) {
         let app_data = app_inode.read_all();
         let elf = ElfFile::new(app_data.as_slice()).unwrap();
         let task = TaskControlBlock::from_elf(elf, args);

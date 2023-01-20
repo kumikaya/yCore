@@ -1,24 +1,26 @@
 use core::default::default;
 
 use super::trap_handler;
+use os_tools::OsStr;
 use riscv::register::sstatus::{self, Sstatus, SPP};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct TrapContext {
-    reg_file: RegFile,   // 0
-    sstatus: Sstatus,    // 31
-    sepc: usize,         // 32
-    ksp: usize,          // 33
+    pub reg_file: RegFile,  // 0
+    sstatus: Sstatus,       // 31
+    pub sepc: usize,        // 32
+    /// 始终指向内核栈栈底
+    pub ksp: usize,         // 33
     /// 内核空间的token
-    satp: usize,         // 34
-    trap_handler: usize, // 35
-    hartid: usize,       // 36
+    satp: usize,            // 34
+    trap_handler: usize,    // 35
+    pub hartid: usize,      // 36
 }
 
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
-struct RegFile {
+pub struct RegFile {
     pub ra: usize,      // 0
     pub sp: usize,      // 1
     pub gp: usize,      // 2
@@ -63,21 +65,8 @@ impl TrapContext {
         [a[0], a[1], a[2], a[3], a[4], a[5]]
     }
 
-    pub unsafe fn set_hartid(&mut self, hartid: usize) {
-        self.hartid = hartid
-    }
-
-    #[inline(always)]
-    pub unsafe fn set_next_sepc(&mut self) {
-        self.sepc += 4;
-    }
-    pub fn get_ksp_bottom(&self) -> usize {
-        self.ksp
-    }
-    pub unsafe fn set_ksp_bottom(&mut self, ksp: usize) {
-        self.ksp = ksp
-    }
-    pub fn get_usp(&self) -> usize {
-        self.reg_file.sp
+    pub fn set_args(&mut self, args: OsStr<'static>) {
+        self.reg_file.a[0] = args.as_ptr() as usize;
+        self.reg_file.a[1] = args.len();
     }
 }

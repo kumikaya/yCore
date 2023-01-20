@@ -1,19 +1,28 @@
-use core::{hint, task::Poll, cell::{Cell, RefCell}};
+use core::{
+    cell::{Cell, RefCell},
+    hint,
+    sync::atomic::Ordering,
+    task::Poll,
+};
 
 use alloc::collections::VecDeque;
-use spin::Mutex;
+
+use spin::{Lazy, Mutex};
 
 use crate::{
-    task::{__switch, scheduler::get_processor, task::TaskContext},
+    config::{CLOCK_FREQ, TICK_FREQ},
+    task::{__switch, context::TaskContext, scheduler::get_processor},
+    timer::get_time,
 };
 
 use super::{
-    task::{Task, TaskStatus},
+    task_block::{Task, TaskStatus, TASK_SEND_LOCK},
     tigger::{Future, FutureBox},
 };
 
 pub struct Processor {
-    pub current: Cell<Option<Task>>,
+    current: Cell<Option<Task>>,
+    poll_time: Cell<usize>,
     queue: TaskQueue,
     switch_trampoline: RefCell<TaskContext>,
 }
@@ -32,7 +41,7 @@ impl BlockedTask {
             Poll::Ready(_) => {
                 self.task.set_state(TaskStatus::Ready);
                 Some(self.task.clone())
-            },
+            }
             Poll::Pending => None,
         }
     }
@@ -48,6 +57,7 @@ impl Processor {
         Self {
             // hartid,
             current: Cell::new(None),
+            poll_time: Cell::new(get_time()),
             queue: TaskQueue::new(),
             switch_trampoline: RefCell::new(TaskContext::switch_trampoline(hartid)),
             // task_manager: task_maneger,
@@ -83,6 +93,8 @@ impl Processor {
     }
 }
 
+const POLL_TIME_INTERVAL: usize = CLOCK_FREQ / (2 * TICK_FREQ);
+
 pub unsafe fn switch_trampoline() {
     let processor = get_processor();
     processor.set_current(None);
@@ -90,35 +102,53 @@ pub unsafe fn switch_trampoline() {
 }
 
 impl Processor {
+    fn try_poll_wait(&self) {
+        let time = get_time();
+        if time > self.poll_time.get() {
+            self.poll_time.set(time + POLL_TIME_INTERVAL);
+            self.queue.poll_all_wait();
+        }
+    }
+    fn get_ready_task_spin(&self) -> Task {
+        loop {
+            self.try_poll_wait();
+            if let Some(task) = self.queue.pop_ready() {
+                break task;
+            }
+            for _ in 0..16 {
+                hint::spin_loop();
+            }
+        }
+    }
     pub fn entrap_task(&self) -> ! {
         let next: *mut TaskContext;
         if unsafe { (*self.current.as_ptr()).is_none() } {
-            let task = self.queue.pop_spin();
+            let task = self.get_ready_task_spin();
             next = task.task_context();
-            
             self.set_current(Some(task));
         } else {
             // 当无法找到下一个任务时切换到初始化栈 ,避免在当前栈退出任务
             next = self.switch_trampoline.as_ptr();
         }
-        static mut HOLE: TaskContext = TaskContext::default();
-        unsafe { __switch(&mut HOLE as *mut TaskContext, next) };
+        static mut HOLE: Lazy<TaskContext> = Lazy::new(TaskContext::default);
+        unsafe { __switch(HOLE.as_mut_ptr(), next, &mut 0usize as *mut usize) };
         unreachable!()
     }
 
     /// 如果传入 `tigger` 为 `Some` 则将当前任务置为 `Wait`
     #[inline]
     pub fn schedule(&self, tigger: Option<FutureBox>) {
-
         let current_task = self.current.take().unwrap();
         let current = current_task.task_context();
+        // current_task.send_lock.store(TASK_SEND_LOCK, Ordering::SeqCst);
+        let lock_addr = current_task.send_lock.as_mut_ptr();
         self.queue.push_task(current_task, tigger);
-        
-        let next_task = self.queue.pop_spin();
+
+        let next_task = self.get_ready_task_spin();
         let next = next_task.task_context();
 
         self.set_current(Some(next_task));
-        unsafe { __switch(current, next) };
+        unsafe { __switch(current, next, lock_addr) };
     }
 }
 
@@ -177,41 +207,46 @@ impl TaskQueue {
     pub fn push_task(&self, task: Task, tigger: Option<FutureBox>) {
         if let Some(tigger) = tigger {
             task.set_state(TaskStatus::Wait);
-            self.wait_queue.lock().push_back(BlockedTask::new(task, tigger))
+            self.wait_queue
+                .lock()
+                .push_back(BlockedTask::new(task, tigger))
         } else {
+            task.send_lock.store(TASK_SEND_LOCK, Ordering::SeqCst);
             task.set_state(TaskStatus::Ready);
             self.queue.lock().push_back(task)
         }
         // self.queue.lock().push_back(task);
     }
 
-    pub fn poll_all_wait(&self) {
+    pub fn poll_all_wait(&self) -> bool {
+        let mut flag = false;
         let mut wait_queue = self.wait_queue.lock();
         for _ in 0..wait_queue.len() {
             if let Some(wait_task) = wait_queue.pop_front() {
                 if let Some(task) = wait_task.poll() {
                     self.push_task(task, None);
+                    flag = true;
                 } else {
                     wait_queue.push_back(wait_task);
                 }
             }
         }
+        flag
     }
 
     #[inline]
     pub fn pop_ready(&self) -> Option<Task> {
         self.queue.lock().pop_front()
     }
-    #[inline]
-    pub fn pop_spin(&self) -> Task {
-        loop {
-            if let Some(task) = self.pop_ready() {
-                break task;
-            }
-            for _ in 0..16 {
-                hint::spin_loop();
-            }
-            self.poll_all_wait();
-        }
-    }
+    // #[inline]
+    // pub fn pop_spin(&self) -> Task {
+    //     loop {
+    //         if let Some(task) = self.pop_ready() {
+    //             break task;
+    //         }
+    //         for _ in 0..16 {
+    //             hint::spin_loop();
+    //         }
+    //     }
+    // }
 }

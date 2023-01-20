@@ -22,7 +22,7 @@ bitflags! {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct PageTableEntry {
     pub bits: usize,
@@ -61,11 +61,6 @@ impl PageTableEntry {
     }
 }
 
-impl Default for PageTableEntry {
-    fn default() -> Self {
-        Self { bits: 0 }
-    }
-}
 #[derive(Debug)]
 pub struct PageTable {
     pub root_ppn: PhysPageNum,
@@ -134,13 +129,13 @@ impl PageTable {
         unreachable!()
     }
 
-    pub fn va_translate(&self, va: VirtAddr) -> Option<PhysAddr> {
+    pub fn va_translate(&self, va: VirtAddr) -> Result<PhysAddr> {
         let vpn: VirtPageNum = va.floor();
         let ppn = self.translate(vpn);
         if let Some(ppn) = ppn {
-            Some(PhysAddr::from(ppn.ppn()) + PhysAddr::from(va.page_offset()))
+            Ok(PhysAddr::from(ppn.ppn()) + PhysAddr::from(va.page_offset()))
         } else {
-            None
+            Err(anyhow!("virt addr {} is invalid", va))
         }
     }
 
@@ -155,7 +150,7 @@ impl PageTable {
     }
 
     pub fn free(&mut self, vpn: VirtPageNum) -> Result<()> {
-        if let Some(_) = self.leafs.remove(&vpn) {
+        if self.leafs.remove(&vpn).is_some() {
             self.unmap_uncheck(vpn)
         } else {
             Err(anyhow!("vpn {} is not malloc", vpn))
@@ -210,8 +205,13 @@ pub unsafe fn translated_byte_buffer(
                 return Err(anyhow!("illegal address {}", start));
             }
         };
-        let end_va = VirtAddr::from(vpn.offset(1)).min(end);
-        let part = &mut ppn.as_bytes()[start.page_offset()..end_va.page_offset()];
+        let end_va = VirtAddr::from(vpn.offset(1));
+        let end_offset = if end_va < end {
+            PAGE_SIZE
+        } else {
+            end.page_offset()
+        };
+        let part = &mut ppn.as_bytes()[start.page_offset()..end_offset];
         result.push(part);
         start = end_va;
     }
@@ -229,10 +229,10 @@ pub unsafe fn translated_string(space: &MemorySet, ptr: VirtAddr, len: usize) ->
     String::from_utf8(buffer).map_err(|err| anyhow!("{}", err))
 }
 
-pub unsafe fn translated_refmut<'a, T: 'static>(space: &'a MemorySet, ptr: *mut T) -> &'a mut T {
+pub unsafe fn translated_refmut<T: 'static>(space: &MemorySet, ptr: *mut T) -> Result<&mut T> {
     //println!("into translated_refmut!");
     let va = ptr as usize;
-    space.va_translate(VirtAddr::from(va)).unwrap().as_type()
+    space.va_translate(VirtAddr::from(va)).map(|x| x.as_type())
 }
 
 ///Array of u8 slice that user communicate with os

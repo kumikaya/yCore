@@ -1,82 +1,103 @@
-use core::{arch::asm, cell::RefCell, fmt::Debug, slice, mem::size_of};
+use core::{
+    arch::asm,
+    cell::RefCell,
+    fmt::Debug,
+    sync::atomic::{AtomicUsize, Ordering}, hint, ops::Deref,
+};
 
 use alloc::{
     string::String,
     sync::{Arc, Weak},
     vec,
-    vec::Vec,
+    vec::Vec, boxed::Box,
 };
+use anyhow::Result;
+
+use os_tools::OsStr;
 use spin::Mutex;
 use xmas_elf::ElfFile;
 
 use crate::{
-    config::{kernel_stack_position, KERNEL_INIT_STACK_SIZE, KERNEL_STACK_SIZE, TRAP_CONTEXT},
+    config::{kernel_stack_position, KERNEL_STACK_SIZE},
     fs::{
         stdio::{Stdin, Stdout},
         FileBox,
     },
     mm::{
-        address::{PhysAddr, VirtAddr},
-        memory_set::{kernel_token, push_kernel_stack, remove_kernel_stack, MemorySet}, page_table::{translated_refmut, BufferHandle, translated_byte_buffer},
+        address::VirtAddr,
+        memory_set::{kernel_token, push_kernel_stack, remove_kernel_stack, MemorySet},
+        page_table::{translated_byte_buffer, BufferHandle},
     },
     tools::align_ceil,
-    trap::{context::TrapContext, init_app_trap_return},
-    KERNEL_STACK,
+    trap::context::TrapContext,
 };
 
 use super::{
+    context::{Context, TaskContext},
     pid::{pid_alloc, PidHandle},
-    processor::switch_trampoline,
+    signal::{SignalFlags, Signal}, scheduler::get_hartid,
 };
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct TaskContext {
-    ra: usize,      // 0
-    ksp: usize,     // 1
-    s: [usize; 12], // 2
-}
-
-impl const Default for TaskContext {
-    fn default() -> Self {
-        Self {
-            ra: 0,
-            ksp: 0,
-            s: [0; 12],
-        }
-    }
-}
-
-impl TaskContext {
-    pub fn goto_trap_return(ksp: usize, satp: usize) -> Self {
-        let mut result = Self {
-            ra: init_app_trap_return as usize,
-            ksp,
-            s: [0; 12],
-        };
-        result.s[0] = satp;
-        result
-    }
-
-    pub fn switch_trampoline(hartid: usize) -> Self {
-        let ksp =
-            unsafe { &KERNEL_STACK as *const u8 as usize } + (hartid + 1) * KERNEL_INIT_STACK_SIZE;
-        Self {
-            ra: switch_trampoline as usize,
-            ksp,
-            s: [0; 12],
-        }
-    }
-}
 
 pub type Task = Arc<TaskControlBlock>;
 
+struct TaskWarp {
+    inner: Arc<TaskControlBlock>,
+}
+
+impl Deref for TaskWarp {
+    type Target = Arc<TaskControlBlock>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl Clone for TaskWarp {
+    fn clone(&self) -> Self {
+        if get_hartid() != unsafe { self.inner.trap_context().hartid } {
+            while self.inner.send_lock.load(Ordering::Relaxed) == TASK_SEND_LOCK {
+                hint::spin_loop();
+            }
+        }
+        Self { inner: self.inner.clone() }
+    }
+}
+
+pub const TASK_SEND_UNLOCK: usize = 0;
+pub const TASK_SEND_LOCK: usize = 1;
+
 pub struct TaskControlBlock {
     pid: PidHandle,
-    pub shared_state: Arc<SharedStatus>,
-    pub tree: RefCell<ProcessTree>,
-    context: RefCell<Context>,
-    pub fd_table: RefCell<FdTable>,
+    /// 共享状态，允许多线程访问
+    pub shared: Arc<SharedStatus>,
+    /// 非共享状态，不允许多线程访问
+    pub local: RefCell<LoaclStatus>,
+    /// 线程间发送任务的锁，如果为0则可以在线程间发送任务。
+    ///
+    /// 持有任务的线程只会写入该变量，其它线程只会读取该变量
+    pub send_lock: AtomicUsize,
+}
+
+pub struct LoaclStatus {
+    pub tree: ProcessTree,
+    pub fd_table: FdTable,
+    pub signal: Signal,
+    pub trap_cx_backup: Option<Box<TrapContext>>,
+    context: Context,
+}
+
+impl LoaclStatus {
+    pub fn new(context: Context) -> Self {
+        Self {
+            tree: ProcessTree::default(),
+            context,
+            fd_table: FdTable::new(),
+            signal: Default::default(),
+            // signal_mask: Default::default(),
+            // signal_actions: Default::default(),
+            trap_cx_backup: Default::default(),
+        }
+    }
 }
 
 // unsafe impl Sync for TaskControlBlock {}
@@ -93,29 +114,15 @@ pub enum TaskStatus {
 
 #[derive(Default)]
 pub struct SharedStatus {
+    pub signals: Mutex<SignalFlags>,
     pub state: Mutex<TaskStatus>,
     pub exit_code: Mutex<Option<i32>>,
-}
-
-impl SharedStatus {
-    pub fn new() -> Self {
-        Self {
-            state: Mutex::new(TaskStatus::Ready),
-            exit_code: Mutex::new(None),
-        }
-    }
 }
 
 #[derive(Default)]
 pub struct ProcessTree {
     pub parent: Option<Weak<TaskControlBlock>>,
-    pub children: Vec<Arc<TaskControlBlock>>,
-}
-
-pub struct Context {
-    memory_set: MemorySet,
-    task_cx: TaskContext,
-    trap_cx: PhysAddr,
+    pub children: Vec<Task>,
 }
 
 #[derive(Clone)]
@@ -139,7 +146,7 @@ impl FdTable {
             .table
             .iter()
             .enumerate()
-            .find(|(idx, file)| *idx >= 2 && file.is_none())
+            .find(|(_, file)| file.is_none())
             .map(|(idx, _)| idx);
         if let Some(idx) = fd {
             self.table[idx] = Some(file);
@@ -163,6 +170,14 @@ impl FdTable {
             None
         }
     }
+    pub fn swap(&mut self, fd0: usize, fd1: usize) -> Result<()> {
+        if self.get(fd0).is_some() && self.get(fd1).is_some() {
+            self.table.swap(fd0, fd1);
+            Ok(())
+        } else {
+            Err(anyhow!("exchange failed, some fd did not exist"))
+        }
+    }
 }
 
 #[inline(always)]
@@ -181,7 +196,7 @@ fn get_sp() -> usize {
 /// 退出任务时不能在退出任务的内核栈上
 impl Drop for TaskControlBlock {
     fn drop(&mut self) {
-        let ksp = self.trap_context().get_ksp_bottom();
+        let ksp = unsafe { self.trap_context().ksp };
         assert!(!(ksp..(ksp + KERNEL_STACK_SIZE)).contains(&get_sp()));
         remove_kernel_stack(VirtAddr::from(ksp).into());
         // info!("Drop app {}", self.get_pid());
@@ -192,13 +207,15 @@ impl Drop for TaskControlBlock {
 fn push_args(memory_set: &MemorySet, mut usp: usize, args: &str) -> usize {
     let args_len = args.len();
     // 8字节对齐
-    let all_len = align_ceil::<u64>(args_len + size_of::<usize>());
+    // let all_len = align_ceil::<u64>(args_len + size_of::<usize>());
+    let all_len = align_ceil::<u64>(args_len);
     usp -= all_len;
     unsafe {
         // 向栈写入参数长度
-        *translated_refmut(memory_set, usp as *const usize as *mut usize) = args_len;
-        let args_addr = usp + size_of::<usize>();
-        let buffer = BufferHandle::new(translated_byte_buffer(memory_set, args_addr.into(), args_len).unwrap());
+        // *translated_refmut(memory_set, usp as *const usize as *mut usize) = args_len;
+        // let args_addr = usp + size_of::<usize>();
+        let buffer =
+            BufferHandle::new(translated_byte_buffer(memory_set, usp.into(), args_len).unwrap());
         // 写入参数
         for (dst, src) in buffer.into_iter().zip(args.as_bytes().iter()) {
             *dst = *src;
@@ -208,7 +225,7 @@ fn push_args(memory_set: &MemorySet, mut usp: usize, args: &str) -> usize {
 }
 
 impl TaskControlBlock {
-    pub fn new(memory_set: MemorySet, entry: usize, usp: usize) -> Arc<Self> {
+    pub fn new(memory_set: MemorySet, entry: usize, usp: usize) -> Task {
         let pid = pid_alloc();
         // 添加内核栈
         let (ksp_top, ksp_bottom) = kernel_stack_position(pid.id);
@@ -216,18 +233,24 @@ impl TaskControlBlock {
         let trap_cx = TrapContext::init(entry, usp, ksp_bottom, kernel_token());
         Arc::new(Self {
             pid,
-            shared_state: Arc::new(SharedStatus::new()),
-            tree: RefCell::new(ProcessTree::default()),
-            fd_table: RefCell::new(FdTable::new()),
-            context: RefCell::new(Context::new(memory_set, trap_cx)),
+            shared: Default::default(),
+            send_lock: AtomicUsize::new(TASK_SEND_UNLOCK),
+            local: RefCell::new(LoaclStatus::new(Context::new(memory_set, trap_cx))),
         })
     }
 
-
-    pub fn from_elf(elf: ElfFile, args: &str) -> Arc<Self> {
+    pub fn from_elf(elf: ElfFile, args: &str) -> Task {
         let (memory_set, entry, mut usp) = MemorySet::from_elf(&elf);
         usp = push_args(&memory_set, usp, args);
-        Self::new(memory_set, entry, usp)
+        let result = Self::new(memory_set, entry, usp);
+        let trap_cx = unsafe { result.trap_context() };
+        unsafe {
+            trap_cx.set_args(OsStr::from_raw_parts_unchecked(
+                usp as *const u8,
+                args.len(),
+            ));
+        }
+        result
     }
 
     pub fn exec(&self, elf: ElfFile, _args: Vec<String>) {
@@ -235,75 +258,59 @@ impl TaskControlBlock {
         let trap_cx = TrapContext::init(
             entry,
             usp,
-            self.trap_context().get_ksp_bottom(),
+            unsafe { self.trap_context().ksp },
             kernel_token(),
         );
-        *self.context.borrow_mut() = Context::new(memory_set, trap_cx);
+        self.local.borrow_mut().context = Context::new(memory_set, trap_cx);
         todo!()
     }
 
-    pub fn fork(self: &Arc<Self>) -> Arc<Self> {
+    pub fn fork(self: &Task) -> Task {
         let pid = pid_alloc();
         let (ksp_top, ksp_bottom) = kernel_stack_position(pid.id);
         push_kernel_stack(ksp_top.into(), ksp_bottom.into());
-        let memory_set = MemorySet::from_existed(&self.context.borrow().memory_set);
-        let mut trap_cx = self.trap_context().clone();
+        let memory_set = MemorySet::from_existed(&self.local.borrow().context.memory_set);
+        let mut trap_cx = unsafe { *self.trap_context() };
         // 设置初始内核栈，所以是安全的
-        unsafe { trap_cx.set_ksp_bottom(ksp_bottom) };
+        trap_cx.ksp = ksp_bottom;
         trap_cx.set_return(0);
         let result = Arc::new(Self {
             pid,
-            shared_state: Arc::new(SharedStatus::new()),
-            // state: Mutex::new(TaskStatus::Ready),
-            tree: RefCell::new(ProcessTree::default()),
-            fd_table: RefCell::new(self.fd_table.borrow().clone()),
-            context: RefCell::new(Context::new(memory_set, trap_cx)),
-            // exit_code: Mutex::new(None),
+            shared: Default::default(),
+            send_lock: AtomicUsize::new(TASK_SEND_UNLOCK),
+            local: RefCell::new(LoaclStatus::new(Context::new(memory_set, trap_cx))),
         });
+        result.local.borrow_mut().fd_table = self.local.borrow().fd_table.clone();
         // 初始化，安全
         unsafe { result.set_parent(self) };
         result
     }
 
-    // pub fn run(&self, hartid: usize) {
-    //     self.trap_context().hartid = hartid;
-    //     *self.state.lock() = TaskStatus::Running;
-    //     // processor.set_current(self)
-    // }
-
-    // pub fn ready(&self) {
-    //     *self.state.lock() = TaskStatus::Ready;
-    //     // TASK_MANAGER.push(self);
-    //     // self.inner.borrow_mut().set_state(TaskStatus::Ready);
-    // }
-
     pub fn is_ready(&self) -> bool {
-        matches!(*self.shared_state.state.lock(), TaskStatus::Ready)
+        matches!(*self.shared.state.lock(), TaskStatus::Ready)
     }
 
     pub fn exit(&self, code: i32) {
-        *self.shared_state.state.lock() = TaskStatus::Exited;
+        let mut local = self.local.borrow_mut();
+        // 提前释放部分非共享数据
+        local.fd_table.table.clear();
+        local.tree.children.clear();
+        // info!("App {} exit with code {code}", self.get_pid());
+        *self.shared.exit_code.lock() = Some(code);
+        *self.shared.state.lock() = TaskStatus::Exited;
         // *self.state.lock() = TaskStatus::Exited;
-        *self.shared_state.exit_code.lock() = Some(code);
     }
 
     pub fn set_state(&self, state: TaskStatus) {
         assert_ne!(state, TaskStatus::Exited);
-        *self.shared_state.state.lock() = state;
+        *self.shared.state.lock() = state;
     }
 
-    // pub fn block(self: &Arc<Self>, tigger: FutureBox) {
-    //     *self.state.lock() = TaskStatus::Wait(tigger);
-    // }
-
-    // pub fn exit(&self, code: i32) {
-    //     *self.state.lock() = TaskStatus::Exited(code);
-    // }
-
     /// 获取其它线程的任务是不安全的，因为 `TaskControlBlock` 不是线程安全的
-    pub unsafe fn find_child(&self, pid: isize) -> Option<(usize, Arc<Self>)> {
-        self.tree
+    pub unsafe fn find_child(&self, pid: isize) -> Option<(usize, Task)> {
+        self.local
             .borrow()
+            .tree
             .children
             .iter()
             .enumerate()
@@ -317,11 +324,11 @@ impl TaskControlBlock {
     }
 
     pub fn task_context(&self) -> *mut TaskContext {
-        &self.context.borrow_mut().task_cx as *const _ as *mut TaskContext
+        unsafe { &mut (*self.local.as_ptr()).context.task_cx as *mut TaskContext }
     }
     #[inline]
-    pub fn trap_context(&self) -> &mut TrapContext {
-        unsafe { self.context.borrow_mut().trap_cx.as_type() }
+    pub unsafe fn trap_context(&self) -> &mut TrapContext {
+        (*self.local.as_ptr()).context.trap_cx.as_type()
     }
     #[inline]
     pub fn get_pid(&self) -> isize {
@@ -329,33 +336,18 @@ impl TaskControlBlock {
     }
 
     /// 父子任务必须是同一个线程的
-    pub unsafe fn set_parent(self: &Arc<Self>, parent: &Arc<Self>) {
-        parent.tree.borrow_mut().children.push(self.clone());
+    pub unsafe fn set_parent(self: &Task, parent: &Task) {
+        parent.local.borrow_mut().tree.children.push(self.clone());
         // parent.inner.borrow_mut().children.push(self.clone());
-        self.tree.borrow_mut().parent = Some(Arc::downgrade(parent));
+        self.local.borrow_mut().tree.parent = Some(Arc::downgrade(parent));
     }
 
     pub fn exit_code(&self) -> Option<i32> {
-        *self.shared_state.exit_code.lock()
+        *self.shared.exit_code.lock()
     }
     #[inline]
     pub fn space(&self) -> &mut MemorySet {
-        unsafe { &mut (*self.context.as_ptr()).memory_set }
-    }
-}
-
-impl Context {
-    pub fn new(memory_set: MemorySet, trap_cx: TrapContext) -> Self {
-        let cx_pa = memory_set.va_translate((TRAP_CONTEXT).into()).unwrap();
-        let satp = memory_set.token();
-        unsafe {
-            *cx_pa.as_type() = trap_cx;
-        }
-        Self {
-            memory_set,
-            task_cx: TaskContext::goto_trap_return(trap_cx.get_ksp_bottom(), satp),
-            trap_cx: cx_pa,
-        }
+        unsafe { &mut (*self.local.as_ptr()).context.memory_set }
     }
 }
 

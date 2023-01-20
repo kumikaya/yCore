@@ -1,8 +1,8 @@
-use core::iter::Step;
-use core::ops::{Sub, SubAssign, Add, Range};
-use core::{ops::AddAssign, mem::size_of, slice};
+use crate::config::{PAGE_SIZE, PAGE_WIDTH, SV39_PAGE_INDEX_WIDTH, SV39_PAGE_LEVEL};
 use core::fmt::{Debug, Display};
-use crate::config::{PAGE_SIZE, PAGE_WIDTH, SV39_PAGE_LEVEL, SV39_PAGE_INDEX_WIDTH};
+use core::iter::Step;
+use core::ops::{Add, Range, Sub, SubAssign};
+use core::{mem::size_of, ops::AddAssign, slice};
 
 use super::page_table::PageTableEntry;
 
@@ -10,7 +10,6 @@ const PA_WIDTH_SV39: usize = 56;
 const VA_WIDTH_SV39: usize = 39;
 const PPN_WIDTH_SV39: usize = PA_WIDTH_SV39 - PAGE_WIDTH;
 const VPN_WIDTH_SV39: usize = VA_WIDTH_SV39 - PAGE_WIDTH;
-
 
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -32,7 +31,7 @@ macro_rules! impl_add_and_sub {
     ($type: ty) => {
         impl const Add for $type {
             type Output = Self;
-        
+
             fn add(self, rhs: Self) -> Self::Output {
                 Self(self.0 + rhs.0)
             }
@@ -44,7 +43,7 @@ macro_rules! impl_add_and_sub {
         }
         impl const Sub for $type {
             type Output = Self;
-        
+
             fn sub(self, rhs: Self) -> Self::Output {
                 Self(self.0 - rhs.0)
             }
@@ -73,7 +72,7 @@ macro_rules! impl_display {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 write!(f, "{:#x}", self.0)
             }
-        }        
+        }
     };
 }
 
@@ -87,11 +86,11 @@ macro_rules! impl_step {
                     None
                 }
             }
-        
+
             fn forward_checked(start: Self, count: usize) -> Option<Self> {
                 Some(start + count.into())
             }
-        
+
             fn backward_checked(start: Self, count: usize) -> Option<Self> {
                 Some(start - count.into())
             }
@@ -127,7 +126,6 @@ impl const From<usize> for PhysAddr {
 }
 impl const From<usize> for PhysPageNum {
     fn from(v: usize) -> Self {
-        // Self(v & )
         assert!(v < (1 << PPN_WIDTH_SV39));
         Self(v)
     }
@@ -143,7 +141,6 @@ impl const From<PhysPageNum> for usize {
         v.0
     }
 }
-
 
 impl From<PhysAddr> for PhysPageNum {
     fn from(v: PhysAddr) -> Self {
@@ -195,9 +192,13 @@ impl const From<VirtPageNum> for usize {
     }
 }
 
-
 impl PhysAddr {
     pub unsafe fn as_type<T>(&self) -> &'static mut T {
+        // 类型T不能跨页
+        assert!(
+            size_of::<T>() < PAGE_SIZE
+         && self.page_offset() < PhysAddr(self.0 + size_of::<T>()).page_offset()
+        );
         (self.0 as *mut T).as_mut().unwrap()
     }
 
@@ -210,20 +211,18 @@ impl PhysAddr {
     pub fn page_offset(self) -> usize {
         self.0 % PAGE_SIZE
     }
-
 }
 
 impl VirtPageNum {
     pub fn indexs(self) -> [usize; SV39_PAGE_LEVEL] {
         let mut result = [0usize; SV39_PAGE_LEVEL];
-        let mut vpn = self.0;   
+        let mut vpn = self.0;
         for i in (0..SV39_PAGE_LEVEL).rev() {
             result[i] = vpn & ((1 << SV39_PAGE_INDEX_WIDTH) - 1);
             vpn >>= SV39_PAGE_INDEX_WIDTH;
         }
         result
     }
-
 }
 
 impl VirtAddr {
@@ -241,12 +240,14 @@ impl VirtAddr {
 impl PhysPageNum {
     pub unsafe fn as_pte_array(self) -> &'static mut [PageTableEntry] {
         let pa: PhysAddr = self.into();
-        slice::from_raw_parts_mut(pa.0 as *mut PageTableEntry, PAGE_SIZE / size_of::<PageTableEntry>())
+        slice::from_raw_parts_mut(
+            pa.0 as *mut PageTableEntry,
+            PAGE_SIZE / size_of::<PageTableEntry>(),
+        )
     }
 
     pub unsafe fn as_bytes(self) -> &'static mut [u8] {
         let pa: PhysAddr = self.into();
         slice::from_raw_parts_mut(pa.0 as *mut u8, PAGE_SIZE)
     }
-
 }

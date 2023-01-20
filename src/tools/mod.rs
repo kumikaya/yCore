@@ -9,7 +9,7 @@ pub const fn align_ceil<T>(meta: usize) -> usize {
 
 pub unsafe fn from_cstr(ptr: *const u8) -> &'static str {
     let mut end = ptr;
-    while end.read() != '\0' as u8 {
+    while end.read() != b'\0' {
         end = end.add(1);
     }
     core::str::from_utf8(slice::from_raw_parts(ptr, end as usize - ptr as usize)).unwrap()

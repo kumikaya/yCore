@@ -11,7 +11,7 @@ use riscv::register::{
 use crate::{
     config::{TRAMPOLINE, TRAP_CONTEXT},
     syscall::Syscall,
-    task::{processor::Schedule, scheduler::get_processor},
+    task::{processor::Schedule, scheduler::get_processor, signal::SignalHandle},
     timer::set_next_trigger,
 };
 
@@ -51,7 +51,7 @@ pub unsafe extern "C" fn trap_handler() -> ! {
     drop(task);
     match scause::read().cause() {
         Trap::Exception(Exception::UserEnvCall) => {
-            cx.set_next_sepc();
+            cx.sepc += 4;
             let result = proc.syscall(cx.syscall_id(), cx.syscall_args());
             cx.set_return(result as usize);
         }
@@ -71,6 +71,7 @@ pub unsafe extern "C" fn trap_handler() -> ! {
             panic!("Unsupported trap {:?}, stval = {:#x}!", trap, stval::read());
         }
     }
+    proc.handle_signals();
     unsafe { user_trap_return(satp) }
 }
 
@@ -156,7 +157,6 @@ pub unsafe fn user_trap_return(satp: usize) -> ! {
     set_user_trap_entry();
     let restore = (user_restore as usize - user_trap_entry as usize) + TRAMPOLINE;
     asm! {r"
-        fence.i
         jr {restore}",
         restore = in(reg) restore,
         in("a0") satp,

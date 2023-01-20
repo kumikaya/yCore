@@ -20,22 +20,6 @@ pub fn print(args: fmt::Arguments) {
     STDOUT.lock().write_fmt(args).unwrap();
 }
 
-// #[macro_export]
-// #[allow_internal_unstable(print_internals)]
-// macro_rules! print {
-//     ($fmt: literal $(, $($arg: tt)+)?) => {
-//         $crate::console::print(format_args!($fmt $(, $($arg)+)?));
-//     }
-// }
-
-// #[macro_export]
-// #[allow_internal_unstable(print_internals)]
-// macro_rules! println {
-//     ($fmt: literal $(, $($arg: tt)+)?) => {
-//         $crate::console::print(format_args!(concat!($fmt, "\n") $(, $($arg)+)?));
-//     }
-// }
-
 #[macro_export]
 #[allow_internal_unstable(print_internals)]
 macro_rules! print {

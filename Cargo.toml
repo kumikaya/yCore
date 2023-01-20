@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 log = { version = "0.4" }
-lazy_static = { version = "1.4", features = ["spin_no_std"] }
+# lazy_static = { version = "1.4", features = ["spin_no_std"] }
 buddy_system_allocator = "0.9"
 bitflags = "1.3"
 xmas-elf = "0.9.0"
@@ -20,8 +20,9 @@ riscv = { path = "../rcore-riscv", features = ["inline-asm"] }
 sbi-rt = "0.0.2"
 spin = "0.9"
 dtb-walker = { path = "../dtb-walker" }
-fatfs = { path = "../rust-fatfs", default-features = false, features = ["alloc"]}
+# fatfs = { path = "../rust-fatfs", default-features = false, features = ["alloc"]}
 # fscommon ={ path = "../rust-fscommon", default-features = false }
+os-tools = { path = "../os-tools" }
 [features]
 default = ["qemu"]
 debug_test = []

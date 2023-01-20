@@ -1,5 +1,6 @@
 use alloc::sync::{Arc, Weak};
 use anyhow::Result;
+
 use spin::Mutex;
 
 use crate::{mm::page_table::BufferHandle, task::processor::yield_};
@@ -13,14 +14,14 @@ pub struct Pipe {
 }
 
 impl Pipe {
-    pub fn read_end_with_buffer(buffer: Arc<Mutex<PipeBuffer>>) -> Self {
+    pub fn read_end(buffer: Arc<Mutex<PipeBuffer>>) -> Self {
         Self {
             readable: true,
             writable: false,
             buffer,
         }
     }
-    pub fn write_end_with_buffer(buffer: Arc<Mutex<PipeBuffer>>) -> Self {
+    pub fn write_end(buffer: Arc<Mutex<PipeBuffer>>) -> Self {
         Self {
             readable: false,
             writable: true,
@@ -90,14 +91,14 @@ impl File for Pipe {
 
     fn read(&self, buffer_handle: BufferHandle) -> usize {
         assert!(self.readable());
-        println!("read: {}", buffer_handle.len());
+        // println!("read: {}", buffer_handle.len());
         let mut read_len = 0;
         let mut pipe_buffer = self.buffer.lock();
         for x in buffer_handle.into_iter() {
             loop {
                 if let Some(byte) = pipe_buffer.read() {
                     read_len += 1;
-                    unsafe { *x = byte };
+                    *x = byte;
                     break;
                 } else if pipe_buffer.all_write_ends_closed() {
                     return read_len;
@@ -113,12 +114,12 @@ impl File for Pipe {
 
     fn write(&self, buffer_handle: BufferHandle) -> usize {
         assert!(self.writable());
-        println!("write: {}", buffer_handle.len());
+        // println!("write: {}", buffer_handle.len());
         let mut writed_len = 0;
         let mut pipe_buffer = self.buffer.lock();
         for x in buffer_handle.into_iter() {
             loop {
-                if let Ok(_) = pipe_buffer.write(unsafe { *x }) {
+                if pipe_buffer.write(*x).is_ok() {
                     writed_len += 1;
                     break;
                 } else {
@@ -134,8 +135,8 @@ impl File for Pipe {
 
 pub fn make_pipe() -> (Arc<Pipe>, Arc<Pipe>) {
     let buffer = Arc::new(Mutex::new(PipeBuffer::new()));
-    let read_end = Arc::new(Pipe::read_end_with_buffer(buffer.clone()));
-    let write_end = Arc::new(Pipe::write_end_with_buffer(buffer.clone()));
+    let read_end = Arc::new(Pipe::read_end(buffer.clone()));
+    let write_end = Arc::new(Pipe::write_end(buffer.clone()));
     buffer.lock().set_write_end(&write_end);
     (read_end, write_end)
 }

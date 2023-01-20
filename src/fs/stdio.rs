@@ -44,7 +44,7 @@ impl File for Stdout {
 
     fn write(&self, buffer_handle: BufferHandle) -> usize {
         for buffer in buffer_handle.buffers.iter() {
-            print!("{}", core::str::from_utf8(*buffer).unwrap());
+            print!("{}", core::str::from_utf8(buffer).unwrap());
         }
         buffer_handle.len()
     }

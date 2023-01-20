@@ -1,22 +1,24 @@
 use core::arch::asm;
 
-use log::info;
 
-use crate::{
-    fs::inode::open_app,
-    task::scheduler::get_processor,
-};
 
-use self::{scheduler::add_task, task::TaskContext};
+use self::{scheduler::add_task, context::TaskContext};
+use crate::{fs::inode::open_app, task::{scheduler::get_processor}};
 
 pub mod pid;
 pub mod processor;
 pub mod scheduler;
-pub mod task;
+pub mod task_block;
 pub mod tigger;
+pub mod context;
+pub mod signal;
 
 #[naked]
-pub unsafe extern "C" fn __switch(current: *mut TaskContext, next: *mut TaskContext) {
+pub unsafe extern "C" fn __switch(
+    current: *mut TaskContext,
+    next: *mut TaskContext,
+    send_lock: *mut usize,
+) {
     asm! {r"
         .altmacro
         .macro SAVE_S n
@@ -32,6 +34,8 @@ pub unsafe extern "C" fn __switch(current: *mut TaskContext, next: *mut TaskCont
             SAVE_S %n
             .set n, n + 1
         .endr
+        amoswap.d.rl zero, zero, (a2)
+        # sd zero, 0(a2)
         ld ra, 0(a1)
         .set n, 0
         .rept 12

@@ -1,14 +1,12 @@
 use core::arch::asm;
 
 use crate::config::HART_NUMBER;
-
-use super::{processor::Processor, task::Task};
+use super::{processor::Processor, task_block::Task};
 use alloc::vec::Vec;
-use lazy_static::lazy_static;
+use spin::Lazy;
 
-lazy_static! {
-    pub static ref GLOBAL_SCHEDULER: Scheduler = Scheduler::new(HART_NUMBER);
-}
+
+pub static GLOBAL_SCHEDULER: Lazy<Scheduler> = Lazy::new(|| Scheduler::new(HART_NUMBER));
 
 pub struct Scheduler {
     group: Vec<Processor>,
@@ -41,7 +39,7 @@ impl Scheduler {
             .enumerate()
             .min_by(|(_, x), (_, y)| x.ready_task_num().cmp(&y.ready_task_num()))
             .unwrap();
-        unsafe { task.trap_context().set_hartid(hartid) };
+        unsafe { task.trap_context().hartid = hartid };
         processor.add_task(task);
     }
 
@@ -59,15 +57,15 @@ impl Scheduler {
     }
 }
 
-#[inline]
-pub fn set_hartid(hartid: usize) {
-    unsafe {
-        asm! {r"
-            mv tp, {x}",
-            x = in(reg) hartid
-        }
-    };
-}
+// #[inline]
+// pub fn set_hartid(hartid: usize) {
+//     unsafe {
+//         asm! {r"
+//             mv tp, {x}",
+//             x = in(reg) hartid
+//         }
+//     };
+// }
 
 #[inline]
 pub fn get_hartid() -> usize {

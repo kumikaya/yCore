@@ -1,24 +1,20 @@
 use alloc::vec::Vec;
-use anyhow::{Result, anyhow};
-use lazy_static::lazy_static;
-use spin::Mutex;
+use anyhow::{anyhow, Result};
+use spin::{Lazy, Mutex};
 
-use crate::{mm::address::PhysAddr, config::MEMORY_END};
+use crate::{config::MEMORY_END, mm::address::PhysAddr};
 
 use super::address::PhysPageNum;
 
-
-lazy_static! {
-    pub static ref FRAME_ALLOCATOR: Mutex<StackFrameAllocator> = {
-        extern "C" {
-            fn ekernel();
-        }
-        Mutex::new(
-            StackFrameAllocator::new(PhysAddr::from(ekernel as usize).ceil(), PhysAddr::from(MEMORY_END).floor())
-        )
-    };
-}
-
+pub static FRAME_ALLOCATOR: Lazy<Mutex<StackFrameAllocator>> = Lazy::new(|| {
+    extern "C" {
+        fn ekernel();
+    }
+    Mutex::new(StackFrameAllocator::new(
+        PhysAddr::from(ekernel as usize).ceil(),
+        PhysAddr::from(MEMORY_END).floor(),
+    ))
+});
 
 trait FrameAllocator {
     // fn new() -> Self;
@@ -57,7 +53,6 @@ impl FrameAllocator for StackFrameAllocator {
         } else {
             Err(anyhow!("frame alloc fail"))
         }
-        
     }
 
     fn dealloc(&mut self, ppn: PhysPageNum) {
@@ -95,9 +90,10 @@ impl Drop for FrameTracker {
 }
 
 pub fn frame_alloc() -> Result<FrameTracker> {
-    FRAME_ALLOCATOR.lock().alloc().map(|frame| {
-        FrameTracker::new(frame)
-    })
+    FRAME_ALLOCATOR
+        .lock()
+        .alloc()
+        .map(FrameTracker::new)
 }
 
 pub fn frame_dealloc(ppn: PhysPageNum) {
@@ -110,7 +106,7 @@ fn free_frame_num() -> usize {
 
 #[cfg(feature = "debug_test")]
 pub fn frame_allocator_test() {
-    use crate::tools::ansi::{Colour, Color};
+    use crate::tools::ansi::{Color, Colour};
 
     let mut v: Vec<FrameTracker> = Vec::new();
     let frame_num = free_frame_num();

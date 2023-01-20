@@ -2,8 +2,7 @@ use core::ptr::NonNull;
 
 use alloc::vec::Vec;
 use easy_fs::BlockDevice;
-use lazy_static::*;
-use spin::Mutex;
+use spin::{Lazy, Mutex};
 use virtio_drivers::{
     device::blk::VirtIOBlk,
     transport::mmio::{MmioTransport, VirtIOHeader},
@@ -26,9 +25,7 @@ pub struct VirtIOBlock {
 unsafe impl Sync for VirtIOBlock {}
 unsafe impl Send for VirtIOBlock {}
 
-lazy_static! {
-    static ref QUEUE_FRAMES: Mutex<Vec<FrameTracker>> = Mutex::new(Vec::new());
-}
+static QUEUE_FRAMES: Lazy<Mutex<Vec<FrameTracker>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 impl BlockDevice for VirtIOBlock {
     fn read_block(&self, block_id: usize, buf: &mut [u8]) {

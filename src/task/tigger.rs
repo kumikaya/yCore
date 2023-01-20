@@ -4,13 +4,41 @@ use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use crate::timer::get_time_ms;
 
-use super::task::{TaskStatus, SharedStatus, Task};
+use super::{task_block::{SharedStatus, Task, TaskStatus}, signal::SignalFlags};
 
 pub type FutureBox = Box<dyn Future<Output = ()> + Send + Sync + 'static>;
 
 pub trait Future {
     type Output;
     fn poll(&self) -> Poll<Self::Output>;
+}
+
+pub struct Tigger<F> {
+    f: F,
+}
+
+impl<F> Tigger<F>
+where
+    F: Fn() -> bool,
+{
+    pub fn new(f: F) -> Self {
+        Self { f }
+    }
+}
+
+impl<F> Future for Tigger<F>
+where
+    F: Fn() -> bool,
+{
+    type Output = ();
+
+    fn poll(&self) -> Poll<Self::Output> {
+        if (self.f)() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
 }
 
 pub struct Timer {
@@ -43,8 +71,11 @@ pub struct TaskWaiter {
 }
 
 impl TaskWaiter {
-    pub fn new(task: Arc<SharedStatus>, state: TaskStatus) -> Self {
-        Self { shared_data: task, state }
+    pub fn new(task: &Task, state: TaskStatus) -> Self {
+        Self {
+            shared_data: task.shared.clone(),
+            state,
+        }
     }
 }
 
@@ -64,13 +95,12 @@ pub struct ChildrenWaiter {
     shared_datas: Vec<Arc<SharedStatus>>,
 }
 
-
 impl ChildrenWaiter {
-    pub fn new(parent: Task) -> Self {
-        let children = &parent.tree.borrow().children;
+    pub fn new(parent: &Task) -> Self {
+        let children = &parent.local.borrow().tree.children;
         let mut shared_datas = Vec::with_capacity(children.len());
         for child in children {
-            shared_datas.push(child.shared_state.clone());
+            shared_datas.push(child.shared.clone());
         }
         Self { shared_datas }
     }
@@ -80,14 +110,43 @@ impl Future for ChildrenWaiter {
     type Output = ();
 
     fn poll(&self) -> Poll<Self::Output> {
-        if self.shared_datas.is_empty() {
-            return Poll::Ready(());
+        if self.shared_datas.is_empty()
+            || self
+                .shared_datas
+                .iter()
+                .any(|state| state.exit_code.lock().is_some())
+        {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
         }
-        for state in self.shared_datas.iter() {
-            if state.exit_code.lock().is_some() {
-                return Poll::Ready(());
-            }
+    }
+}
+
+pub struct SignalWaiter {
+    flag: SignalFlags,
+    shared_data: Arc<SharedStatus>,
+}
+
+impl SignalWaiter {
+    pub fn new(task: &Task, flag: SignalFlags) -> Self {
+        Self {
+            flag,
+            shared_data: task.shared.clone(),
         }
-        Poll::Pending
+    }
+}
+
+impl Future for SignalWaiter {
+    type Output = ();
+
+    fn poll(&self) -> Poll<Self::Output> {
+        let mut signals = self.shared_data.signals.lock();
+        if signals.contains(self.flag) {
+            *signals ^= self.flag;
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
     }
 }

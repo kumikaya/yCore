@@ -78,14 +78,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fatfs"
-version = "0.4.0"
-dependencies = [
- "bitflags",
- "log",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -118,6 +110,10 @@ name = "memchr"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
+
+[[package]]
+name = "os-tools"
+version = "0.1.0"
 
 [[package]]
 name = "proc-macro2"
@@ -288,9 +284,8 @@ dependencies = [
  "buddy_system_allocator",
  "dtb-walker",
  "easy-fs",
- "fatfs",
- "lazy_static",
  "log",
+ "os-tools",
  "riscv",
  "sbi-rt",
  "spin 0.9.4",

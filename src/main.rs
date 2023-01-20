@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 #![feature(box_syntax)]
+#![feature(derive_const)]
+#![feature(atomic_mut_ptr)]
 #![feature(const_trait_impl, step_trait)]
 #![feature(panic_info_message, alloc_error_handler)]
 #![feature(fn_align, naked_functions, asm_const, default_free_fn)]
@@ -19,13 +21,9 @@ mod timer;
 mod tools;
 mod trap;
 
-pub use lang_items::half::*;
-use log::{info, warn};
-
 use crate::{
     config::{HART_NUMBER, KERNEL_INIT_STACK_SIZE},
     mm::memory_set,
-    task::scheduler,
     tools::logging,
 };
 use core::{
@@ -47,6 +45,7 @@ mod board;
 #[link_section = ".text.entry"]
 unsafe extern "C" fn _start() -> ! {
     asm! {"
+        mv tp, a0
         call {locate_stack}
         call {main}",
         locate_stack = sym locate_stack,
@@ -61,7 +60,7 @@ pub static mut KERNEL_STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
 
 /// 为每个硬件线程分配初始化栈
 #[naked]
-unsafe extern "C" fn locate_stack(hartid: usize) -> ! {
+unsafe extern "C" fn locate_stack() -> ! {
     asm! {"
         la sp, {stack_top}
         li t0, {per_stack_size}
@@ -89,18 +88,15 @@ fn clear_bss() {
     }
 }
 
-pub fn rust_main(hartid: usize, _device_tree_addr: usize) -> ! {
-    scheduler::set_hartid(hartid);
+pub fn rust_main(_hartid: usize, _device_tree_addr: usize) -> ! {
     static GENESIS: AtomicBool = AtomicBool::new(true);
     if GENESIS.swap(false, Ordering::AcqRel) {
         // 初始化bss段
         clear_bss();
         logging::init();
-        // drivers::print_dtb(_dtb_pa);
         mm::init();
         task::add_initproc();
         fs::inode::list_apps();
-        // fs::inode::inode_test();
         // 启动所有硬件线程
         sbi::start_all_hart();
     }
