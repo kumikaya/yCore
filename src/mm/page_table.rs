@@ -10,6 +10,7 @@ use bitflags::bitflags;
 use riscv::register::satp;
 
 bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct PTEFlags: u8 {
         const V = 1 << 0;
         const R = 1 << 1;
@@ -31,7 +32,7 @@ pub struct PageTableEntry {
 impl PageTableEntry {
     pub fn new(ppn: PhysPageNum, flags: PTEFlags) -> Self {
         Self {
-            bits: usize::from(ppn) << 10 | flags.bits as usize,
+            bits: usize::from(ppn) << 10 | flags.bits() as usize,
         }
     }
 

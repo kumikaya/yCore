@@ -1,10 +1,10 @@
+use crate::mm::page_table::BufferHandle;
 use alloc::sync::Arc;
 use bitflags::bitflags;
-use crate::mm::page_table::BufferHandle;
 
-pub mod stdio;
 pub mod inode;
 pub mod pipe;
+pub mod stdio;
 pub type FileBox = Arc<dyn File + Send + Sync>;
 
 pub trait File {
@@ -17,9 +17,10 @@ pub trait File {
 }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct FileFlags: u8 {
         const R = 1 << 0;
         const W = 1 << 1;
-        const RW  = Self::R.bits | Self::W.bits;
+        const RW  = Self::R.bits() | Self::W.bits();
     }
 }

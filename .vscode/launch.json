@@ -10,13 +10,23 @@
             "type": "gdb",
             "request": "attach",
             "name": "Attach to gdbserver",
-            "autorun": [],
-            "executable": "${workspaceFolder}/target/riscv64gc-unknown-none-elf/release/y_core",
-            "target": "localhost:34110",
+            "executable": "${env:HOME}/build/riscv64gc-unknown-none-elf/release/ycore",
+            "target": "localhost:1234",
             "remote": true,
             "cwd": "${workspaceFolder}",
             "valuesFormatting": "parseText",
-            // "stopAtConnect": true
+            "stopAtConnect": true
+        },
+        {
+            "type": "lldb",
+            "request": "custom",
+            "name": "Custom launch",
+            // "processCreateCommands": [],
+            "preLaunchTask": "Debug run",
+            "targetCreateCommands": ["target create ${env:HOME}/build/riscv64gc-unknown-none-elf/release/ycore"],
+            // "processCreateCommands": ["process launch ${env:HOME}/build/riscv64gc-unknown-none-elf/release/ycore"],
+            "initCommands": [ "gdb-remote localhost:1234" ],
+            // "sourceMap": { "<source tree path at compilation time>": "${workspaceFolder}" },
         }
     ]
 }

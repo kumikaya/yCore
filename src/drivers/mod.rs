@@ -1,6 +1,5 @@
 pub mod block;
-use dtb_walker::{self, Dtb, DtbObj, utils::indent, WalkOperation};
-
+use dtb_walker::{self, utils::indent, Dtb, DtbObj, WalkOperation};
 
 const INDENT_WIDTH: usize = 4;
 pub fn print_dtb(dtb_pa: usize) {

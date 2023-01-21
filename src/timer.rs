@@ -1,6 +1,9 @@
 use riscv::register::time;
 
-use crate::{config::{CLOCK_FREQ, TICK_FREQ}, sbi::set_timer};
+use crate::{
+    config::{CLOCK_FREQ, TICK_FREQ},
+    sbi::set_timer,
+};
 
 #[inline]
 pub fn get_time() -> usize {

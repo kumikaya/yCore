@@ -1,19 +1,24 @@
 # Building
 TARGET := riscv64gc-unknown-none-elf
-USER_MODE := release
 MODE := release
-KERNEL_NAME = y_core
-KERNEL_ELF = ./target/$(TARGET)/$(MODE)/$(KERNEL_NAME)
+USER_MODE := $(MODE)
+BUILD_DIR := $(HOME)/build
+TARGET_DIR := $(BUILD_DIR)/$(TARGET)/$(MODE)
+# TARGET_DIR := ./target/$(TARGET)/$(MODE)
+KERNEL_NAME = ycore
+KERNEL_ELF = $(TARGET_DIR)/$(KERNEL_NAME)
 KERNEL_BIN = $(KERNEL_ELF).bin
 FEATURES = 
-# debug_test
-QEMU_ARGS := 
+# debug
+QEMU_ARGS :=
 CARGO_ARGS :=
 USER := ../user
-FS_IMG := $(USER)/target/$(TARGET)/$(USER_MODE)/fs.img
+FS_IMG := $(TARGET_DIR)/fs.img
 APPS := $(USER)/src/bin/*
 # Log level: error | warn | info
 export LOG ?= info
+GDB_PATH := riscv64-unknown-elf-gdb
+RUST_GDB := RUST_GDB=$(GDB_PATH) rust-gdb
 
 test_build: 
 	@cargo build --tests
@@ -26,7 +31,7 @@ $(APPS):
 fs-img: $(APPS)
 	@cd ../user && make build
 	@rm -f $(FS_IMG)
-	@cd ../easy-fs-fuse && cargo run --$(USER_MODE) -- -s $(USER)/src/bin/ -t $(USER)/target/$(TARGET)/release/
+	@cd ../easy-fs-fuse && cargo run --$(USER_MODE) -- -s $(USER)/src/bin -t $(TARGET_DIR)
 
 
 $(KERNEL_BIN): build
@@ -37,7 +42,7 @@ KERNEL_ENTRY_ADDR := 0x80200000
 BOARD ?= qemu
 SBI ?= rustsbi
 BOOTLOADER := ../bootloader/$(SBI)-$(BOARD).bin
-# GDB_PORT := 9433
+GDB_PORT := 1234
 
 run_only:
 	@qemu-system-riscv64 \
@@ -54,9 +59,11 @@ run_only:
 
 run: build run_only
 
+test: test_build run_only
+
 # gdb connect the qemu
 cn:
-	@riscv64-unknown-elf-gdb \
+	@$(RUST_GDB) \
     -ex "file $(KERNEL_ELF)" \
     -ex "set arch riscv:rv64" \
     -ex "target remote localhost:$(GDB_PORT)"

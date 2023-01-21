@@ -4,7 +4,11 @@ use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use crate::timer::get_time_ms;
 
-use super::{task_block::{SharedStatus, Task, TaskStatus}, signal::SignalFlags};
+use super::{
+    process::{Process, ProcessSharedStatus, ProcessStatus},
+    signal::SignalFlags,
+    tcb::{SharedStatus, Task},
+};
 
 pub type FutureBox = Box<dyn Future<Output = ()> + Send + Sync + 'static>;
 
@@ -66,15 +70,13 @@ impl Future for Timer {
 }
 
 pub struct TaskWaiter {
-    state: TaskStatus,
-    shared_data: Arc<SharedStatus>,
+    shared_data: Arc<ProcessSharedStatus>,
 }
 
 impl TaskWaiter {
-    pub fn new(task: &Task, state: TaskStatus) -> Self {
+    pub fn new(process: &Process) -> Self {
         Self {
-            shared_data: task.shared.clone(),
-            state,
+            shared_data: process.shared.clone(),
         }
     }
 }
@@ -83,7 +85,7 @@ impl Future for TaskWaiter {
     type Output = ();
 
     fn poll(&self) -> Poll<Self::Output> {
-        if *self.shared_data.state.lock() == self.state {
+        if let ProcessStatus::Exit(_) = *self.shared_data.state.lock() {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -92,12 +94,12 @@ impl Future for TaskWaiter {
 }
 
 pub struct ChildrenWaiter {
-    shared_datas: Vec<Arc<SharedStatus>>,
+    shared_datas: Vec<Arc<ProcessSharedStatus>>,
 }
 
 impl ChildrenWaiter {
-    pub fn new(parent: &Task) -> Self {
-        let children = &parent.local.borrow().tree.children;
+    pub fn new(parent: &Process) -> Self {
+        let children = &parent.inner.read().tree.children;
         let mut shared_datas = Vec::with_capacity(children.len());
         for child in children {
             shared_datas.push(child.shared.clone());
@@ -114,7 +116,7 @@ impl Future for ChildrenWaiter {
             || self
                 .shared_datas
                 .iter()
-                .any(|state| state.exit_code.lock().is_some())
+                .any(|state| matches!(*state.state.lock(), ProcessStatus::Exit(_)))
         {
             Poll::Ready(())
         } else {

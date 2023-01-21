@@ -21,13 +21,11 @@ pub fn print(args: fmt::Arguments) {
 }
 
 #[macro_export]
-#[allow_internal_unstable(print_internals)]
 macro_rules! print {
     ($($arg:tt)*) => ($crate::console::print(format_args!($($arg)*)));
 }
 
 #[macro_export]
-#[allow_internal_unstable(print_internals, format_args_nl)]
 macro_rules! println {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => ({

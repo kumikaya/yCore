@@ -5,7 +5,7 @@ use core::{
     task::Poll,
 };
 
-use alloc::collections::VecDeque;
+use alloc::{boxed::Box, collections::VecDeque};
 
 use spin::{Lazy, Mutex};
 
@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::{
-    task_block::{Task, TaskStatus, TASK_SEND_LOCK},
+    tcb::{Task, TaskStatus, TASK_SEND_LOCK, TASK_SEND_UNLOCK},
     tigger::{Future, FutureBox},
 };
 
@@ -66,9 +66,9 @@ impl Processor {
 
     #[inline]
     pub fn set_current(&self, new: Option<Task>) {
-        if let Some(task) = &new {
-            task.set_state(TaskStatus::Running);
-        }
+        // if let Some(task) = &new {
+        //     task.set_state(TaskStatus::Running);
+        // }
         self.current.set(new);
     }
 
@@ -85,11 +85,12 @@ impl Processor {
         self.queue.push_task(task, None)
     }
     pub fn fetch_task(&self) -> Option<Task> {
-        if self.queue.ready_task_num() > 1 {
-            self.queue.pop_ready()
-        } else {
-            None
-        }
+        self.queue
+            .queue
+            .lock()
+            .iter()
+            .find(|task| task.send_lock.load(Ordering::Acquire) == TASK_SEND_UNLOCK)
+            .cloned()
     }
 }
 
@@ -115,7 +116,7 @@ impl Processor {
             if let Some(task) = self.queue.pop_ready() {
                 break task;
             }
-            for _ in 0..16 {
+            for _ in 0..32 {
                 hint::spin_loop();
             }
         }
@@ -131,7 +132,7 @@ impl Processor {
             next = self.switch_trampoline.as_ptr();
         }
         static mut HOLE: Lazy<TaskContext> = Lazy::new(TaskContext::default);
-        unsafe { __switch(HOLE.as_mut_ptr(), next, &mut 0usize as *mut usize) };
+        unsafe { __switch(HOLE.as_mut_ptr(), next, &mut 0u32 as *mut u32) };
         unreachable!()
     }
 
@@ -141,7 +142,11 @@ impl Processor {
         let current_task = self.current.take().unwrap();
         let current = current_task.task_context();
         // current_task.send_lock.store(TASK_SEND_LOCK, Ordering::SeqCst);
-        let lock_addr = current_task.send_lock.as_mut_ptr();
+        let lock_addr = current_task.send_lock.as_ptr();
+        current_task
+            .send_lock
+            .store(TASK_SEND_LOCK, Ordering::Relaxed);
+        // 任务被存放到任务队列时必须确保该任务的上下文被保存完毕
         self.queue.push_task(current_task, tigger);
 
         let next_task = self.get_ready_task_spin();
@@ -176,7 +181,7 @@ impl Schedule for Processor {
         F: Future<Output = ()> + Send + Sync + 'static,
     {
         // 当前任务在被其它线程获取之前必须保存完 `TaskContext`
-        self.schedule(Some(box tigger));
+        self.schedule(Some(Box::new(tigger)));
     }
 
     fn yield_(&self) {
@@ -211,7 +216,6 @@ impl TaskQueue {
                 .lock()
                 .push_back(BlockedTask::new(task, tigger))
         } else {
-            task.send_lock.store(TASK_SEND_LOCK, Ordering::SeqCst);
             task.set_state(TaskStatus::Ready);
             self.queue.lock().push_back(task)
         }
@@ -238,15 +242,4 @@ impl TaskQueue {
     pub fn pop_ready(&self) -> Option<Task> {
         self.queue.lock().pop_front()
     }
-    // #[inline]
-    // pub fn pop_spin(&self) -> Task {
-    //     loop {
-    //         if let Some(task) = self.pop_ready() {
-    //             break task;
-    //         }
-    //         for _ in 0..16 {
-    //             hint::spin_loop();
-    //         }
-    //     }
-    // }
 }

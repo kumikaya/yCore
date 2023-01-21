@@ -1,13 +1,14 @@
 use core::ops::{Index, IndexMut};
 
+use alloc::boxed::Box;
 use bitflags::bitflags;
 
-use super::{processor::Schedule, task_block::TaskControlBlock, tigger::SignalWaiter};
+use super::{processor::Schedule, tcb::TaskControlBlock, tigger::SignalWaiter};
 
 pub const MAX_SIG: usize = 31;
 
 bitflags! {
-    #[derive(Default)]
+    #[derive(Default, Clone, Copy, PartialEq, Eq)]
     pub struct SignalFlags: u32 {
         const SIGDEF    = 1 << 0; // Default signal handling
         const SIGCONT   = 1 << 18;
@@ -62,7 +63,7 @@ where
 {
     fn handle_signals(&self) {
         let task = self.current_task();
-        let local = task.local.borrow();
+        let local = task.process.inner.read();
         let signals = *task.shared.signals.lock();
         for signal in [0, 18, 19] {
             let flag = SignalFlags::from_bits_truncate(1 << signal as u32);
@@ -85,17 +86,17 @@ where
 
 impl TaskControlBlock {
     pub fn set_user_signal_sret(&self, signal: usize) {
-        let mut local = self.local.borrow_mut();
-        let handler = local.signal.actions[signal];
+        let mut process = self.process.inner.write();
+        let handler = process.signal.actions[signal];
         if handler != 0 {
             // 关闭信号接收
-            local.signal.global_mask = false;
+            process.signal.global_mask = false;
             // 关闭信号标志位
             *self.shared.signals.lock() ^= SignalFlags::from_bits_truncate(1 << signal);
 
             // 备份 trap context ，设置用户信号处理函数入口
             let trap_cx = unsafe { self.trap_context() };
-            local.trap_cx_backup = Some(box *trap_cx);
+            self.local.borrow_mut().trap_cx_backup = Some(Box::new(*trap_cx));
             trap_cx.sepc = handler;
             trap_cx.set_return(signal);
         }

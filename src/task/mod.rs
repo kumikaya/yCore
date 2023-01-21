@@ -1,30 +1,29 @@
-use core::arch::asm;
+use core::arch::naked_asm;
 
+use self::{context::TaskContext, scheduler::add_task};
+use crate::{fs::inode::open_app, task::scheduler::get_processor};
 
-
-use self::{scheduler::add_task, context::TaskContext};
-use crate::{fs::inode::open_app, task::{scheduler::get_processor}};
-
-pub mod pid;
+pub mod context;
+pub mod process;
 pub mod processor;
 pub mod scheduler;
-pub mod task_block;
-pub mod tigger;
-pub mod context;
 pub mod signal;
+pub mod tcb;
+pub mod tigger;
+pub mod uid;
 
 #[naked]
 pub unsafe extern "C" fn __switch(
     current: *mut TaskContext,
     next: *mut TaskContext,
-    send_lock: *mut usize,
+    send_lock: *mut u32,
 ) {
-    asm! {r"
+    naked_asm! {r"
         .altmacro
         .macro SAVE_S n
             sd s\n, (\n+2)*8(a0)
         .endm
-        .macro STORE_S n
+        .macro LOAD_S n
             ld s\n, (\n+2)*8(a1)
         .endm
         sd sp, 8(a0)
@@ -34,24 +33,24 @@ pub unsafe extern "C" fn __switch(
             SAVE_S %n
             .set n, n + 1
         .endr
-        amoswap.d.rl zero, zero, (a2)
+        amoswap.w.rl zero, zero, (a2)
         # sd zero, 0(a2)
         ld ra, 0(a1)
         .set n, 0
         .rept 12
-        STORE_S %n
+        LOAD_S %n
         .set n, n + 1
         .endr
         ld sp, 8(a1)
         ret
         ",
-        options(noreturn)
+        options()
     }
 }
 
 pub fn add_initproc() {
     // 添加初始程序
-    let initproc = open_app("initproc", "").unwrap();
+    let (_, initproc) = open_app("initproc", "").unwrap();
     add_task(initproc);
 }
 

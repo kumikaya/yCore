@@ -1,12 +1,15 @@
 #![no_std]
 #![no_main]
-#![feature(box_syntax)]
 #![feature(derive_const)]
-#![feature(atomic_mut_ptr)]
 #![feature(const_trait_impl, step_trait)]
-#![feature(panic_info_message, alloc_error_handler)]
-#![feature(fn_align, naked_functions, asm_const, default_free_fn)]
-#![feature(allow_internal_unstable)]
+#![feature(alloc_error_handler)]
+#![feature(fn_align, naked_functions)]
+#![feature(maybe_uninit_uninit_array)]
+#![feature(format_args_nl)]
+#![feature(custom_test_frameworks)]
+#![test_runner(crate::tests::test_runner)]
+#![reexport_test_harness_main = "test_main"]
+
 #[macro_use]
 mod console;
 mod config;
@@ -17,18 +20,22 @@ mod mm;
 mod sbi;
 mod syscall;
 mod task;
+#[cfg(feature = "debug")]
+pub mod tests;
 mod timer;
 mod tools;
 mod trap;
 
+use sbi::get_hartid;
+
 use crate::{
-    config::{HART_NUMBER, KERNEL_INIT_STACK_SIZE},
+    config::{KERNEL_INIT_STACK_SIZE, NUM_HARTS},
     mm::memory_set,
     tools::logging,
 };
 use core::{
-    arch::asm,
-    slice,
+    arch::naked_asm,
+    hint, slice,
     sync::atomic::{AtomicBool, Ordering},
 };
 extern crate alloc;
@@ -44,26 +51,29 @@ mod board;
 #[no_mangle]
 #[link_section = ".text.entry"]
 unsafe extern "C" fn _start() -> ! {
-    asm! {"
+    naked_asm! {"
         mv tp, a0
         call {locate_stack}
         call {main}",
         locate_stack = sym locate_stack,
         main = sym rust_main,
-        options(noreturn)
+        options()
     }
 }
 
-pub const STACK_SIZE: usize = HART_NUMBER * KERNEL_INIT_STACK_SIZE;
+pub const STACK_SIZE: usize = NUM_HARTS * KERNEL_INIT_STACK_SIZE;
 #[link_section = ".bss.stack"]
 pub static mut KERNEL_STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
 
 /// 为每个硬件线程分配初始化栈
 #[naked]
 unsafe extern "C" fn locate_stack() -> ! {
-    asm! {"
+    naked_asm! {"
+        # a0 == hartid
+        # pc == 0x80200000
+        # sp == 0x800xxxxx
         la sp, {stack_top}
-        li t0, {per_stack_size}
+        li t0, {kernel_stack_size}
         mv t1, a0
         addi t1, t1, 1
     1:  add sp, sp, t0
@@ -71,8 +81,8 @@ unsafe extern "C" fn locate_stack() -> ! {
         bnez t1, 1b
         ret",
         stack_top = sym KERNEL_STACK,
-        per_stack_size = const KERNEL_INIT_STACK_SIZE,
-        options(noreturn)
+        kernel_stack_size = const KERNEL_INIT_STACK_SIZE,
+        options()
     }
 }
 
@@ -88,20 +98,28 @@ fn clear_bss() {
     }
 }
 
-pub fn rust_main(_hartid: usize, _device_tree_addr: usize) -> ! {
-    static GENESIS: AtomicBool = AtomicBool::new(true);
-    if GENESIS.swap(false, Ordering::AcqRel) {
-        // 初始化bss段
-        clear_bss();
-        logging::init();
-        mm::init();
-        task::add_initproc();
-        fs::inode::list_apps();
-        // 启动所有硬件线程
-        sbi::start_all_hart();
-    }
-    trap::init();
+pub fn rust_main(hartid: usize, _device_tree_addr: usize) -> ! {
+    assert_eq!(hartid, get_hartid());
+    // 初始化bss段
+    clear_bss();
+    logging::init();
+    mm::init();
+    task::add_initproc();
+    fs::inode::list_apps();
+    // 启动所有硬件线程
+    // sbi::start_all_hart();
     // 中断初始化
+    trap::init();
+    memory_set::init_kernel_space();
+    #[cfg(test)]
+    test_main();
+    task::entrap_task()
+}
+
+fn others_main(hartid: usize) -> ! {
+    assert_eq!(hartid, get_hartid());
+    // 中断初始化
+    trap::init();
     memory_set::init_kernel_space();
     task::entrap_task()
 }

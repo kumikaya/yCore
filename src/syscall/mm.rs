@@ -1,23 +1,22 @@
-
-
 use crate::{
-    mm::{address::VirtAddr, memory_set::MapPerm, page_table::PTEFlags}, task::processor::Schedule, syscall::EXEC_FAIL, syscall_unwarp,
+    mm::{address::VirtAddr, memory_set::MapPerm, page_table::PTEFlags},
+    syscall::EXEC_FAIL,
+    syscall_unwarp,
+    task::processor::Schedule,
 };
 
 use super::EXEC_SUCCEE;
-
 
 pub(super) trait SysMm {
     fn sys_munmap(&self, va: VirtAddr, len: usize) -> isize;
     fn sys_mmap(&self, va: VirtAddr, len: usize, perm: usize, fd: usize) -> isize;
 }
 
-
 impl<T: Schedule> SysMm for T {
     fn sys_munmap(&self, va: VirtAddr, len: usize) -> isize {
         let range = va.floor()..va.offset(len as isize).ceil();
         let task = self.current_task();
-        let user_space = task.space();
+        let user_space = unsafe { task.space() };
         for vpn in range {
             syscall_unwarp!(user_space.free(vpn));
         }
@@ -30,7 +29,7 @@ impl<T: Schedule> SysMm for T {
         let flags = PTEFlags::from_bits_truncate(perm.bits());
         let range = va.floor()..va.offset(len as isize).ceil();
         let task = self.current_task();
-        let user_space = task.space();
+        let user_space = unsafe { task.space() };
         for vpn in range {
             syscall_unwarp!(user_space.malloc(vpn, flags));
         }

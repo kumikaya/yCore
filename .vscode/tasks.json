@@ -8,7 +8,7 @@
             "isBackground": true,
             "args": [
                 "run",
-                "QEMU_ARGS=\"-gdb tcp::34110 -S\""
+                "QEMU_ARGS=\"-s -S\""
             ],
             "problemMatcher": {
                 "pattern": [
@@ -32,6 +32,12 @@
                 "kind": "build",
                 "isDefault": true
             },
+        },
+        {
+            "label": "My Task",
+            "type": "shell",
+            "command": "make run",
+            "problemMatcher": []
         }
     ]
 }

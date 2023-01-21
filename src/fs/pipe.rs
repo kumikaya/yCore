@@ -152,5 +152,5 @@ pub fn ring_buffer_test() {
         assert_eq!(buffer.read().unwrap(), i);
     }
     assert!(buffer.read().is_none());
-    println!("Ring buffer test pass!");
+    println!("ring buffer test pass!");
 }

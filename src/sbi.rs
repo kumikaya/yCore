@@ -1,9 +1,9 @@
 #![allow(unused)] // 此行在文件最开头
 use core::arch::asm;
-use log::{info, error};
+use log::{error, info};
 use sbi_rt::{self, SbiRet};
 
-use crate::{println, rust_main, _start, config::HART_NUMBER, task::scheduler::get_hartid};
+use crate::{_start, config::NUM_HARTS, println, rust_main};
 const SBI_SET_TIMER: usize = 0;
 const SBI_CONSOLE_PUTCHAR: usize = 1;
 const SBI_CONSOLE_GETCHAR: usize = 2;
@@ -46,16 +46,26 @@ pub fn shutdown() -> ! {
     panic!("It should shutdown!");
 }
 
-
-#[inline]
-pub fn hart_start(hartid: usize, start_addr: usize, opaque: usize) {
-    sbi_rt::hart_start(hartid, start_addr, opaque);
-}
-
 pub fn start_all_hart() {
-    for id in 0..HART_NUMBER {
+    for id in 0..NUM_HARTS {
         if get_hartid() != id {
             sbi_rt::hart_start(id, _start as usize, 0);
         }
     }
+}
+
+pub fn halt() {
+    unsafe { riscv::asm::wfi() }
+}
+
+#[inline]
+pub fn get_hartid() -> usize {
+    let hartid: usize;
+    unsafe {
+        asm! {r"
+            mv {x}, tp",
+            x = out(reg) hartid
+        }
+    };
+    hartid
 }

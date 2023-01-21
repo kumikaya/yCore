@@ -1,11 +1,11 @@
 mod fs;
-mod process;
 mod mm;
+mod process;
 mod sync;
 use log::warn;
 
+use self::{fs::*, mm::*, process::*, sync::*};
 use crate::task::processor::Schedule;
-use self::{fs::*, process::*, mm::*, sync::*};
 
 const SYSCALL_DUP: usize = 24;
 const SYSCALL_OPEN: usize = 56;
@@ -39,26 +39,26 @@ impl<T: Schedule> Syscall for T {
     #[inline(always)]
     fn syscall(&self, syscall_id: usize, args: [usize; 6]) -> isize {
         match syscall_id {
-            SYSCALL_DUP     => self.sys_dup(args[0]),
-            SYSCALL_OPEN    => self.sys_open(args[0].into(), args[1], args[2] as u32),
-            SYSCALL_CLOSE   => self.sys_close(args[0]),
-            SYSCALL_PIPE    => self.sys_pipe(args[0] as *mut usize),
-            SYSCALL_READ    => self.sys_read(args[0], args[1], args[2]),
-            SYSCALL_WRITE   => self.sys_write(args[0], args[1], args[2]),
-            SYSCALL_EXIT    => self.sys_exit(args[0] as i32),
-            SYSCALL_YIELD   => self.sys_yield(),
-            SYSCALL_TIME    => sys_get_time(),
+            SYSCALL_DUP => self.sys_dup(args[0]),
+            SYSCALL_OPEN => self.sys_open(args[0].into(), args[1], args[2] as u32),
+            SYSCALL_CLOSE => self.sys_close(args[0]),
+            SYSCALL_PIPE => self.sys_pipe(args[0] as *mut usize),
+            SYSCALL_READ => self.sys_read(args[0], args[1], args[2]),
+            SYSCALL_WRITE => self.sys_write(args[0], args[1], args[2]),
+            SYSCALL_EXIT => self.sys_exit(args[0] as i32),
+            SYSCALL_YIELD => self.sys_yield(),
+            SYSCALL_TIME => sys_get_time(),
             SYSCALL_GET_PID => self.sys_get_pid(),
-            SYSCALL_SLEEP   => self.sys_sleep(args[0]),
-            SYSCALL_MUNMAP  => self.sys_munmap(args[0].into(), args[1]),
-            SYSCALL_MMAP    => self.sys_mmap(args[0].into(), args[1], args[2], args[3]),
-            SYSCALL_FORK    => self.sys_fork(),
-            SYSCALL_EXECVE  => self.sys_exec(args[0].into(), args[1], args[2] as u32),
+            SYSCALL_SLEEP => self.sys_sleep(args[0]),
+            SYSCALL_MUNMAP => self.sys_munmap(args[0].into(), args[1]),
+            SYSCALL_MMAP => self.sys_mmap(args[0].into(), args[1], args[2], args[3]),
+            SYSCALL_FORK => self.sys_fork(),
+            SYSCALL_EXECVE => self.sys_exec(args[0].into(), args[1], args[2] as u32),
             SYSCALL_WAITPID => self.sys_waitpid(args[0] as isize, args[1] as *mut i32),
             _ => {
                 warn!("Unsupported syscall id: {}", syscall_id);
                 -1
-            },
+            }
         }
     }
 }
@@ -70,8 +70,8 @@ macro_rules! syscall_unwarp {
             Ok(value) => value,
             Err(err) => {
                 log::warn!("{}", err);
-                return EXEC_FAIL
-            },
+                return EXEC_FAIL;
+            }
         }
     };
 }

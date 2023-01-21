@@ -1,6 +1,6 @@
 pub mod context;
 
-use core::arch::{asm, global_asm};
+use core::arch::{asm, global_asm, naked_asm};
 use log::warn;
 use riscv::register::{
     mtvec::TrapMode,
@@ -9,7 +9,7 @@ use riscv::register::{
 };
 
 use crate::{
-    config::{TRAMPOLINE, TRAP_CONTEXT},
+    config::TRAMPOLINE,
     syscall::Syscall,
     task::{processor::Schedule, scheduler::get_processor, signal::SignalHandle},
     timer::set_next_trigger,
@@ -18,36 +18,32 @@ use crate::{
 use self::context::TrapContext;
 
 #[inline]
-fn set_user_trap_entry() {
-    unsafe {
-        stvec::write(TRAMPOLINE, TrapMode::Direct);
-    }
+unsafe fn set_user_trap_entry() {
+    stvec::write(TRAMPOLINE, TrapMode::Direct);
 }
 
 #[inline]
-pub fn set_kernel_trap_entry() {
-    unsafe {
-        stvec::write(kernel_trap_entry as usize, TrapMode::Direct);
-    }
+pub unsafe fn set_kernel_trap_entry() {
+    stvec::write(kernel_trap_entry as usize, TrapMode::Direct);
 }
 
 pub fn init() {
-    set_kernel_trap_entry();
     unsafe {
+        set_kernel_trap_entry();
         sstatus::clear_sie();
         sie::set_stimer();
     }
     set_next_trigger();
 }
 
-#[allow(unused)]
 /// 该函数内的强引用可能需要手动释放
 pub unsafe extern "C" fn trap_handler() -> ! {
     set_kernel_trap_entry();
     let proc = get_processor();
     let task = proc.current_task();
+    let trap_cx_va = task.trap_context_va();
     let cx = &mut *(task.trap_context() as *const _ as *mut TrapContext);
-    let satp = task.space().token();
+    let satp = task.token();
     drop(task);
     match scause::read().cause() {
         Trap::Exception(Exception::UserEnvCall) => {
@@ -61,18 +57,18 @@ pub unsafe extern "C" fn trap_handler() -> ! {
         }
         Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
             warn!("PageFault[{:#x}]", stval::read());
-            proc.exit_current(-1);
+            proc.exit_current(1);
         }
         Trap::Exception(Exception::IllegalInstruction) => {
             warn!("IllegalInstruction[{:#x}]", stval::read());
-            proc.exit_current(-1);
+            proc.exit_current(1);
         }
         trap => {
             panic!("Unsupported trap {:?}, stval = {:#x}!", trap, stval::read());
         }
     }
     proc.handle_signals();
-    unsafe { user_trap_return(satp) }
+    unsafe { user_trap_return(satp, trap_cx_va) }
 }
 
 #[repr(align(4))]
@@ -110,7 +106,7 @@ global_asm! {r"
 #[naked]
 #[link_section = ".text.trampoline.entry"]
 pub unsafe extern "C" fn user_trap_entry() {
-    asm! {r"
+    naked_asm! {r"
         .altmacro
         # 保存sp寄存器，同时获取 `TrapContext` 用户空间指针
         csrrw sp, sscratch, sp
@@ -136,39 +132,41 @@ pub unsafe extern "C" fn user_trap_entry() {
         sfence.vma
         # 跳转到 trap_handler
         jr t1",
-        options(noreturn)
+        options()
     }
 }
 
 #[naked]
 pub unsafe extern "C" fn init_app_trap_return() {
-    asm! {r"
+    naked_asm! {r"
         mv a0, s0
+        mv a1, s1
         mv s0, zero
+        mv s1, zero
         j {trap_return}
         ",
         trap_return = sym user_trap_return,
-        options(noreturn)
+        options()
     }
 }
 
 #[inline]
-pub unsafe fn user_trap_return(satp: usize) -> ! {
+pub unsafe fn user_trap_return(satp: usize, trap_cx_va: usize) -> ! {
     set_user_trap_entry();
     let restore = (user_restore as usize - user_trap_entry as usize) + TRAMPOLINE;
     asm! {r"
         jr {restore}",
         restore = in(reg) restore,
         in("a0") satp,
-        in("a1") TRAP_CONTEXT,
+        in("a1") trap_cx_va,
         options(noreturn)
     }
 }
 
 #[naked]
 #[link_section = ".text.trampoline"]
-pub unsafe extern "C" fn user_restore(satp: usize, va_cx: usize) {
-    asm! {r"
+pub unsafe extern "C" fn user_restore(satp: usize, trap_cx_va: usize) {
+    naked_asm! {r"
         .altmacro
         # 切换到用户空间
         csrw satp, a0
@@ -188,6 +186,6 @@ pub unsafe extern "C" fn user_restore(satp: usize, va_cx: usize) {
         ld sp, 1*8(sp)
         sret
         ",
-        options(noreturn)
+        options()
     }
 }

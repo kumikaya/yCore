@@ -1,5 +1,3 @@
-use core::default::default;
-
 use super::trap_handler;
 use os_tools::OsStr;
 use riscv::register::sstatus::{self, Sstatus, SPP};
@@ -7,15 +5,15 @@ use riscv::register::sstatus::{self, Sstatus, SPP};
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct TrapContext {
-    pub reg_file: RegFile,  // 0
-    sstatus: Sstatus,       // 31
-    pub sepc: usize,        // 32
+    pub reg_file: RegFile, // 0
+    sstatus: Sstatus,      // 31
+    pub sepc: usize,       // 32
     /// 始终指向内核栈栈底
-    pub ksp: usize,         // 33
+    pub ksp: usize, // 33
     /// 内核空间的token
-    satp: usize,            // 34
-    trap_handler: usize,    // 35
-    pub hartid: usize,      // 36
+    satp: usize, // 34
+    trap_handler: usize,   // 35
+    pub hartid: usize,     // 36
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -31,14 +29,14 @@ pub struct RegFile {
 }
 
 impl TrapContext {
-    pub fn init(entry: usize, usp: usize, ksp: usize, satp: usize) -> Self {
+    pub fn new(entry: usize, usp: usize, ksp: usize, satp: usize) -> Self {
         // `spp` 保存发生中断前的特权级
         let mut sstatus = sstatus::read();
         sstatus.set_spp(SPP::User);
         Self {
             reg_file: RegFile {
                 sp: usp,
-                ..default()
+                ..Default::default()
             },
             sstatus,
             sepc: entry,

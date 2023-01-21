@@ -67,33 +67,37 @@ impl FrameAllocator for StackFrameAllocator {
 #[derive(Debug)]
 pub struct FrameTracker {
     pub ppn: PhysPageNum,
+    pub nodrop: bool,
 }
 
 impl FrameTracker {
     fn new(ppn: PhysPageNum) -> Self {
         unsafe {
             ppn.as_bytes().fill(0);
-            for x in ppn.as_bytes().iter() {
-                if *x != 0 {
-                    panic!();
-                }
-            }
+            // for x in ppn.as_bytes().iter() {
+            //     if *x != 0 {
+            //         panic!();
+            //     }
+            // }
         }
-        Self { ppn }
+        Self { ppn, nodrop: false }
+    }
+
+    pub fn new_noalloc(ppn: PhysPageNum) -> Self {
+        Self { ppn, nodrop: true }
     }
 }
 
 impl Drop for FrameTracker {
     fn drop(&mut self) {
-        frame_dealloc(self.ppn)
+        if !self.nodrop {
+            frame_dealloc(self.ppn);
+        }
     }
 }
 
 pub fn frame_alloc() -> Result<FrameTracker> {
-    FRAME_ALLOCATOR
-        .lock()
-        .alloc()
-        .map(FrameTracker::new)
+    FRAME_ALLOCATOR.lock().alloc().map(FrameTracker::new)
 }
 
 pub fn frame_dealloc(ppn: PhysPageNum) {
@@ -104,14 +108,14 @@ fn free_frame_num() -> usize {
     FRAME_ALLOCATOR.lock().free_frame_num()
 }
 
-#[cfg(feature = "debug_test")]
+#[cfg(feature = "debug")]
 pub fn frame_allocator_test() {
     use crate::tools::ansi::{Color, Colour};
 
     let mut v: Vec<FrameTracker> = Vec::new();
     let frame_num = free_frame_num();
     const ALLOC_NUM: usize = 1024;
-    for i in 0..ALLOC_NUM {
+    for _ in 0..ALLOC_NUM {
         let frame = frame_alloc().unwrap();
         v.push(frame);
     }

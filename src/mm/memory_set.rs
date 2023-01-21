@@ -9,7 +9,7 @@ use xmas_elf::{program::ProgramHeader, ElfFile};
 
 use crate::{
     board::MMIO,
-    config::{GUARD_PAGE_SIZE, MEMORY_END, PAGE_SIZE, TRAMPOLINE, TRAP_CONTEXT, USER_STACK_SIZE},
+    config::{MEMORY_END, PAGE_SIZE, TRAMPOLINE, TRAP_CONTEXT},
     mm::address::PhysAddr,
 };
 
@@ -34,16 +34,17 @@ extern "C" {
 }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct MapPerm: u8 {
         const R = 1 << 1;
         const W = 1 << 2;
         const X = 1 << 3;
         const U = 1 << 4;
-        const RWU = Self::R.bits | Self::W.bits | Self::U.bits;
-        const RXU = Self::R.bits | Self::X.bits | Self::U.bits;
-        const RW  = Self::R.bits | Self::W.bits;
-        const RX  = Self::R.bits | Self::X.bits;
-        const RWX = Self::R.bits | Self::W.bits | Self::X.bits;
+        const RWU = Self::R.bits() | Self::W.bits() | Self::U.bits();
+        const RXU = Self::R.bits() | Self::X.bits() | Self::U.bits();
+        const RW  = Self::R.bits() | Self::W.bits();
+        const RX  = Self::R.bits() | Self::X.bits();
+        const RWX = Self::R.bits() | Self::W.bits() | Self::X.bits();
     }
 }
 
@@ -70,7 +71,7 @@ pub struct MemorySet {
 pub static KERNEL_SPACE: Lazy<Mutex<MemorySet>> =
     Lazy::new(|| Mutex::new(MemorySet::build_kernel_space()));
 
-pub fn push_kernel_stack(va_start: VirtAddr, va_end: VirtAddr) {
+pub unsafe fn add_kernel_stack(va_start: VirtAddr, va_end: VirtAddr) {
     KERNEL_SPACE.lock().push(
         MapArea::new(va_start, va_end, MapPerm::RW, MapType::Framed),
         None,
@@ -78,7 +79,7 @@ pub fn push_kernel_stack(va_start: VirtAddr, va_end: VirtAddr) {
 }
 
 /// 移除内核栈时必须确保当前不在该栈上，即应用不能自己移除自己的内核栈
-pub fn remove_kernel_stack(end_vpn: VirtPageNum) {
+pub unsafe fn remove_kernel_stack(end_vpn: VirtPageNum) {
     KERNEL_SPACE.lock().remove_area_with_end_vpn(end_vpn);
 }
 
@@ -136,21 +137,44 @@ impl MapArea {
         }
     }
 
+    pub fn extend_end(&mut self, page_table: &mut PageTable, page_num: usize) {
+        let start = self.range.end;
+        let end = start.offset(page_num as isize);
+        self.range.end = end;
+        for vpn in start..end {
+            self.map_one(page_table, vpn);
+        }
+    }
+
+    pub fn extend_start(&mut self, page_table: &mut PageTable, page_num: usize) {
+        let start = self.range.start.offset(-(page_num as isize));
+        let end = self.range.start;
+        self.range.start = start;
+        for vpn in start..end {
+            self.map_one(page_table, vpn);
+        }
+    }
+
     pub fn map_area(&mut self, page_table: &mut PageTable) {
         for vpn in self.range.clone() {
-            let ppn = match self.map_type {
-                MapType::Identical => PhysPageNum::from(usize::from(vpn)),
-                MapType::Framed => {
-                    let frame = frame_alloc().unwrap();
-                    let ppn = frame.ppn;
-                    self.data_frames.insert(vpn, frame);
-                    ppn
-                }
-            };
-            page_table
-                .map(vpn, ppn, PTEFlags::from_bits_truncate(self.perm.bits()))
-                .unwrap();
+            self.map_one(page_table, vpn);
         }
+    }
+
+    #[inline]
+    pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
+        let ppn = match self.map_type {
+            MapType::Identical => PhysPageNum::from(usize::from(vpn)),
+            MapType::Framed => {
+                let frame = frame_alloc().unwrap();
+                let ppn = frame.ppn;
+                self.data_frames.insert(vpn, frame);
+                ppn
+            }
+        };
+        page_table
+            .map(vpn, ppn, PTEFlags::from_bits_truncate(self.perm.bits()))
+            .unwrap();
     }
 
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
@@ -249,6 +273,22 @@ impl MemorySet {
         self.areas.push(map_area);
     }
 
+    pub fn extend_area_end(&mut self, start_vpn: VirtPageNum, page_num: usize) {
+        if let Some(area) = self
+            .areas
+            .iter_mut()
+            .find(|area| area.range.start == start_vpn)
+        {
+            area.extend_end(&mut self.page_table, page_num);
+        }
+    }
+
+    pub fn extend_area_start(&mut self, end_vpn: VirtPageNum, page_num: usize) {
+        if let Some(area) = self.areas.iter_mut().find(|area| area.range.end == end_vpn) {
+            area.extend_start(&mut self.page_table, page_num);
+        }
+    }
+
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
         if let Some((idx, area)) = self
             .areas
@@ -298,44 +338,29 @@ impl MemorySet {
         let mut program_vpn_end = VirtPageNum::default();
         for i in 0..ph_count {
             let ph = elf.program_header(i).unwrap();
-            match ph.get_type().unwrap() {
-                xmas_elf::program::Type::Load => {
-                    let map_area = MapArea::from_ph(ph);
-                    let offset = ph.offset() as usize;
-                    let data = &elf.input[offset..(offset + ph.file_size() as usize)];
-                    let vpn_end = map_area.range.end;
-                    if vpn_end > program_vpn_end {
-                        program_vpn_end = vpn_end;
-                    }
-                    memory_set.push(map_area, Some(data));
+            if ph.get_type().unwrap() == xmas_elf::program::Type::Load {
+                let map_area = MapArea::from_ph(ph);
+                let offset = ph.offset() as usize;
+                let data = &elf.input[offset..(offset + ph.file_size() as usize)];
+                let vpn_end = map_area.range.end;
+                if vpn_end > program_vpn_end {
+                    program_vpn_end = vpn_end;
                 }
-                _ => (),
+                memory_set.push(map_area, Some(data));
             }
         }
         assert_ne!(usize::from(program_vpn_end), 0, "empty program");
-        let user_stack_top = VirtAddr::from(program_vpn_end) + VirtAddr::from(GUARD_PAGE_SIZE);
-        let user_stack_bottom = user_stack_top + VirtAddr::from(USER_STACK_SIZE);
-        // maping user stack
-        memory_set.push(
-            MapArea::new(
-                user_stack_top,
-                user_stack_bottom,
-                MapPerm::RWU,
-                MapType::Framed,
-            ),
-            None,
-        );
-        // map TrapContext
+        let user_stack_base = VirtAddr::from(program_vpn_end);
         memory_set.push(
             MapArea::new(
                 (TRAP_CONTEXT).into(),
-                (TRAP_CONTEXT + 1).into(),
+                (TRAP_CONTEXT + PAGE_SIZE).into(),
                 MapPerm::RW,
                 MapType::Framed,
             ),
             None,
         );
-        (memory_set, entry_point, user_stack_bottom.into())
+        (memory_set, entry_point, user_stack_base.into())
     }
 
     pub fn build_kernel_space() -> Self {
@@ -412,7 +437,7 @@ impl MemorySet {
             MapArea::from_range(phys_mem, MapPerm::RW, MapType::Identical),
             None,
         );
-        for (_idx, pair) in MMIO.iter().enumerate() {
+        for pair in MMIO.iter() {
             // info!(".mmio_{}: [{:#x}, {:#x}), {}kb", idx, pair.0, pair.0 + pair.1, pair.1 / 1024);
             let range = (pair.0)..(pair.0 + pair.1);
             result.push(
@@ -426,9 +451,8 @@ impl MemorySet {
     }
 }
 
-#[cfg(feature = "debug_test")]
+#[cfg(feature = "debug")]
 pub fn identical_map_test() {
-    use crate::kernel::KERNEL;
     use crate::println;
     use crate::tools::ansi::{Color, Colour};
     let text = VirtAddr(stext as usize);
@@ -436,7 +460,7 @@ pub fn identical_map_test() {
     let data = VirtAddr(sdata as usize);
     let bss = VirtAddr(sbss as usize);
     let phys_mem = VirtAddr(ekernel as usize);
-    let kernel_pt = KERNEL.kernel_space.borrow_mut();
+    let kernel_pt = &KERNEL_SPACE.lock().page_table;
 
     assert!(kernel_pt
         .translate(text.floor())
@@ -464,20 +488,17 @@ pub fn identical_map_test() {
         .flags()
         .contains(PTEFlags::V | PTEFlags::R | PTEFlags::W));
 
-    let vpn_range = VPNRange::new(
-        VirtAddr(stext as usize).floor(),
-        VirtAddr(MEMORY_END as usize).floor(),
-    );
+    let vpn_range = VirtAddr(stext as usize).floor()..VirtAddr(MEMORY_END).floor();
     for vpn in vpn_range {
         let pte = kernel_pt.translate(vpn).unwrap();
-        let vaddr = VirtAddr::from(vpn).0;
-        let maddr = PhysAddr::from(pte.ppn()).0;
-        assert_eq!(vaddr, maddr);
+        let vaddr = VirtAddr::from(vpn);
+        let maddr = PhysAddr::from(pte.ppn());
+        assert_eq!(vaddr.0, maddr.0);
     }
     println!("[{}] kernel_map_test", "passed".dye(Color::GreenB));
 }
 
-#[cfg(feature = "debug_test")]
+#[cfg(feature = "debug")]
 pub fn framed_map_test() {
     use crate::println;
     use crate::tools::ansi::{Color, Colour};
@@ -486,16 +507,16 @@ pub fn framed_map_test() {
         VirtAddr(stext as usize),
         VirtAddr(stext as usize + 7 * PAGE_SIZE),
     );
-    let data: Vec<u8> = (range.0 .0..range.1 .0).map(|x| x as u8).collect();
+    let data: Vec<u8> = (range.0..range.1).map(|x| x.0 as u8).collect();
     let mut mem_set = MemorySet::new_bare();
     mem_set.push(
         MapArea::new(range.0, range.1, MapPerm::RW, MapType::Framed),
         Some(data.as_slice()),
     );
     let vpn_start = range.0.floor();
-    for vpn in VPNRange::new(vpn_start, range.1.ceil()) {
+    for vpn in vpn_start..range.1.ceil() {
         let map_data = unsafe { mem_set.page_table.translate(vpn).unwrap().ppn().as_bytes() };
-        let start = PAGE_SIZE * (vpn - vpn_start).0;
+        let start = (vpn - vpn_start).start().into();
         assert_eq!(map_data, &data[start..(start + PAGE_SIZE)]);
     }
     println!("[{}] framed_map_data_test", "passed".dye(Color::GreenB));

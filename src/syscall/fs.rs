@@ -25,7 +25,7 @@ pub(super) trait SysFs {
 impl<T: Schedule> SysFs for T {
     fn sys_write(&self, fd: usize, buf: usize, len: usize) -> isize {
         let task = self.current_task();
-        let local = task.local.borrow();
+        let local = task.process.inner.read();
         let fd_table = &local.fd_table;
         if let Some(file) = fd_table.get(fd) {
             if file.writable() {
@@ -44,7 +44,7 @@ impl<T: Schedule> SysFs for T {
 
     fn sys_read(&self, fd: usize, buf: usize, len: usize) -> isize {
         let task = self.current_task();
-        let local = task.local.borrow();
+        let local = task.process.inner.read();
         let fd_table = &local.fd_table;
         if let Some(file) = fd_table.get(fd) {
             if file.readable() {
@@ -66,7 +66,7 @@ impl<T: Schedule> SysFs for T {
         let path = unsafe { syscall_unwarp!(translated_string(task.space(), ptr, len)) };
         let flags = OpenFlags::from_bits_truncate(flags as u8);
         if let Some(inode) = open_file(&path, flags) {
-            task.local.borrow_mut().fd_table.push_fd(inode) as isize
+            task.process.inner.write().fd_table.push(inode) as isize
         } else {
             EXEC_FAIL
         }
@@ -74,8 +74,8 @@ impl<T: Schedule> SysFs for T {
 
     fn sys_close(&self, fd: usize) -> isize {
         let task = self.current_task();
-        let mut local = task.local.borrow_mut();
-        if local.fd_table.close(fd).is_some() {
+        let mut local = task.process.inner.write();
+        if local.fd_table.remove(fd).is_some() {
             EXEC_SUCCEE
         } else {
             EXEC_FAIL
@@ -84,12 +84,12 @@ impl<T: Schedule> SysFs for T {
 
     fn sys_pipe(&self, pipe: *mut usize) -> isize {
         let task = self.current_task();
-        let space = task.space();
+        let space = unsafe { task.space() };
         let (pipe_read, pipe_write) = make_pipe();
-        let mut local = task.local.borrow_mut();
+        let mut local = task.process.inner.write();
         let fd_table = &mut local.fd_table;
-        let read_fd = fd_table.push_fd(pipe_read);
-        let write_fd = fd_table.push_fd(pipe_write);
+        let read_fd = fd_table.push(pipe_read);
+        let write_fd = fd_table.push(pipe_write);
         unsafe {
             let read_fd_ptr = syscall_unwarp!(translated_refmut(space, pipe));
             *read_fd_ptr = read_fd;
@@ -100,11 +100,11 @@ impl<T: Schedule> SysFs for T {
     }
     fn sys_dup(&self, fd: usize) -> isize {
         let task = self.current_task();
-        let mut local = task.local.borrow_mut();
+        let mut local = task.process.inner.write();
         let fd_table = &mut local.fd_table;
         if let Some(file) = fd_table.get(fd) {
             let cp_file = file.clone();
-            fd_table.push_fd(cp_file) as isize
+            fd_table.push(cp_file) as isize
         } else {
             EXEC_FAIL
         }

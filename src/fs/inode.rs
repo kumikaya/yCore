@@ -1,13 +1,21 @@
-use crate::{drivers::block::BLOCK_DEVICE, mm::page_table::BufferHandle, println, task::task_block::{TaskControlBlock, Task}};
+use crate::{
+    drivers::block::BLOCK_DEVICE,
+    mm::page_table::BufferHandle,
+    println,
+    task::{
+        process::{Process, ProcessControlBlock},
+        tcb::Task,
+    },
+};
 use alloc::{sync::Arc, vec::Vec};
-use easy_fs::{EasyFileSystem, Inode, FileType};
 use bitflags::bitflags;
-use spin::{Mutex, Lazy};
+use easy_fs::{EasyFileSystem, FileType, Inode};
+use spin::{Lazy, Mutex};
 use xmas_elf::ElfFile;
 
 use super::{File, FileFlags};
 
-pub static ROOT_INODE: Lazy<Arc<Inode>> = Lazy::new(||{
+pub static ROOT_INODE: Lazy<Arc<Inode>> = Lazy::new(|| {
     let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
     Arc::new(EasyFileSystem::root_inode(&efs))
 });
@@ -96,13 +104,14 @@ impl File for OSInode {
 
 bitflags! {
     ///Open file flags
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct OpenFlags: u8 {
         ///Read only
         const RDONLY = 1 << 0;
         ///Write only
         const WRONLY = 1 << 1;
         ///Read & Write
-        const RDWR = Self::RDONLY.bits | Self::WRONLY.bits;
+        const RDWR = Self::RDONLY.bits() | Self::WRONLY.bits();
         ///Allow create
         const CREATE = 1 << 2;
         ///Clear file and return an empty one
@@ -117,13 +126,18 @@ pub fn inode_test() {
     const STR: &str = "Hello World!";
     file.write_at(0, STR.as_bytes());
     let buffer = &mut [0; STR.len()];
-    ROOT_INODE.find("test").unwrap().find("hello.txt").unwrap().read_at(0, buffer);
+    ROOT_INODE
+        .find("test")
+        .unwrap()
+        .find("hello.txt")
+        .unwrap()
+        .read_at(0, buffer);
     assert_eq!(core::str::from_utf8(buffer).unwrap(), STR)
 }
 
 impl OpenFlags {
     pub fn get_perm(&self) -> FileFlags {
-        FileFlags::from_bits_truncate(self.bits)
+        FileFlags::from_bits_truncate(self.bits())
     }
 }
 
@@ -134,9 +148,9 @@ pub fn open_file(path: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
             inode.clear();
             Some(Arc::new(OSInode::new(perm, inode)))
         } else {
-            ROOT_INODE.create(path, FileType::File).map(|inode| {
-                Arc::new(OSInode::new(perm, inode))
-            })
+            ROOT_INODE
+                .create(path, FileType::File)
+                .map(|inode| Arc::new(OSInode::new(perm, inode)))
         }
     } else {
         ROOT_INODE.find(path).map(|inode| {
@@ -148,12 +162,12 @@ pub fn open_file(path: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     }
 }
 
-pub fn open_app(path: &str, args: &str) -> Option<Task> {
+pub fn open_app(path: &str, args: &str) -> Option<(Process, Task)> {
     if let Some(app_inode) = open_file(path, OpenFlags::RDONLY) {
         let app_data = app_inode.read_all();
         let elf = ElfFile::new(app_data.as_slice()).unwrap();
-        let task = TaskControlBlock::from_elf(elf, args);
-        Some(task)
+        let process = ProcessControlBlock::from_elf(elf, args);
+        Some(process)
     } else {
         None
     }

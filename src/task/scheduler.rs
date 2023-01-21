@@ -1,12 +1,9 @@
-use core::arch::asm;
-
-use crate::config::HART_NUMBER;
-use super::{processor::Processor, task_block::Task};
+use super::{processor::Processor, tcb::Task};
+use crate::{config::NUM_HARTS, sbi::get_hartid};
 use alloc::vec::Vec;
 use spin::Lazy;
 
-
-pub static GLOBAL_SCHEDULER: Lazy<Scheduler> = Lazy::new(|| Scheduler::new(HART_NUMBER));
+pub static GLOBAL_SCHEDULER: Lazy<Scheduler> = Lazy::new(|| Scheduler::new(NUM_HARTS));
 
 pub struct Scheduler {
     group: Vec<Processor>,
@@ -31,7 +28,7 @@ impl Scheduler {
     }
 
     pub fn add_task(&self, task: Task) {
-        // unsafe { task.trap_context().set_hartid(0) };
+        // unsafe { task.trap_context().hartid = 0 };
         // self.group[0].add_task(task);
         let (hartid, processor) = self
             .group
@@ -53,7 +50,9 @@ impl Scheduler {
     }
 
     pub fn balance(&self) {
-        todo!()
+        if let Some(task) = self.fetch_task() {
+            self.add_task(task)
+        }
     }
 }
 
@@ -68,22 +67,8 @@ impl Scheduler {
 // }
 
 #[inline]
-pub fn get_hartid() -> usize {
-    let hartid: usize;
-    unsafe {
-        asm! {r"
-            mv {x}, tp",
-            x = out(reg) hartid
-        }
-    };
-    hartid
-}
-
-#[inline]
 pub fn get_processor() -> &'static Processor {
-    unsafe {
-        GLOBAL_SCHEDULER.get_processor(get_hartid())
-    }
+    unsafe { GLOBAL_SCHEDULER.get_processor(get_hartid()) }
 }
 
 pub fn add_task(task: Task) {

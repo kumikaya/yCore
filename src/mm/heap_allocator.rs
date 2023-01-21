@@ -1,5 +1,5 @@
-use buddy_system_allocator::LockedHeap;
 use crate::config::KERNEL_HEAP_SIZE;
+use buddy_system_allocator::LockedHeap;
 
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::empty();
@@ -19,13 +19,12 @@ pub fn handle_alloc_error(layout: core::alloc::Layout) -> ! {
     panic!("Heap allocation error, layout = {:?}", layout);
 }
 
-
-#[cfg(feature = "debug_test")]
+#[cfg(feature = "debug")]
 pub fn heap_test() {
     use alloc::boxed::Box;
     use alloc::vec::Vec;
 
-    use crate::tools::ansi::{Colour, Color};
+    use crate::tools::ansi::{Color, Colour};
     extern "C" {
         fn sbss();
         fn ebss();
