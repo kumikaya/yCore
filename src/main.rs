@@ -1,12 +1,13 @@
 #![no_std]
 #![no_main]
-#![feature(box_syntax)]
 #![feature(derive_const)]
 #![feature(atomic_mut_ptr)]
 #![feature(const_trait_impl, step_trait)]
 #![feature(panic_info_message, alloc_error_handler)]
 #![feature(fn_align, naked_functions, asm_const, default_free_fn)]
 #![feature(allow_internal_unstable)]
+#![feature(maybe_uninit_uninit_array)]
+#![feature(const_maybe_uninit_uninit_array)]
 #[macro_use]
 mod console;
 mod config;
@@ -22,14 +23,14 @@ mod tools;
 mod trap;
 
 use crate::{
-    config::{HART_NUMBER, KERNEL_INIT_STACK_SIZE},
+    config::{NUM_HARTS, KERNEL_INIT_STACK_SIZE},
     mm::memory_set,
     tools::logging,
 };
 use core::{
     arch::asm,
     slice,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, Ordering}, hint,
 };
 extern crate alloc;
 
@@ -54,7 +55,7 @@ unsafe extern "C" fn _start() -> ! {
     }
 }
 
-pub const STACK_SIZE: usize = HART_NUMBER * KERNEL_INIT_STACK_SIZE;
+pub const STACK_SIZE: usize = NUM_HARTS * KERNEL_INIT_STACK_SIZE;
 #[link_section = ".bss.stack"]
 pub static mut KERNEL_STACK: [u8; STACK_SIZE] = [0; STACK_SIZE];
 
@@ -90,15 +91,20 @@ fn clear_bss() {
 
 pub fn rust_main(_hartid: usize, _device_tree_addr: usize) -> ! {
     static GENESIS: AtomicBool = AtomicBool::new(true);
+    static DONE: AtomicBool = AtomicBool::new(false);
     if GENESIS.swap(false, Ordering::AcqRel) {
         // 初始化bss段
         clear_bss();
         logging::init();
+        // 启动所有硬件线程
+        sbi::start_all_hart();
         mm::init();
         task::add_initproc();
         fs::inode::list_apps();
-        // 启动所有硬件线程
-        sbi::start_all_hart();
+        DONE.store(true, Ordering::Release);
+    }
+    while !DONE.load(Ordering::Acquire) {
+        hint::spin_loop();
     }
     trap::init();
     // 中断初始化

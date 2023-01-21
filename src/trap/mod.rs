@@ -9,7 +9,7 @@ use riscv::register::{
 };
 
 use crate::{
-    config::{TRAMPOLINE, TRAP_CONTEXT},
+    config::TRAMPOLINE,
     syscall::Syscall,
     task::{processor::Schedule, scheduler::get_processor, signal::SignalHandle},
     timer::set_next_trigger,
@@ -18,22 +18,18 @@ use crate::{
 use self::context::TrapContext;
 
 #[inline]
-fn set_user_trap_entry() {
-    unsafe {
-        stvec::write(TRAMPOLINE, TrapMode::Direct);
-    }
+unsafe fn set_user_trap_entry() {
+    stvec::write(TRAMPOLINE, TrapMode::Direct);
 }
 
 #[inline]
-pub fn set_kernel_trap_entry() {
-    unsafe {
-        stvec::write(kernel_trap_entry as usize, TrapMode::Direct);
-    }
+pub unsafe fn set_kernel_trap_entry() {
+    stvec::write(kernel_trap_entry as usize, TrapMode::Direct);
 }
 
 pub fn init() {
-    set_kernel_trap_entry();
     unsafe {
+        set_kernel_trap_entry();
         sstatus::clear_sie();
         sie::set_stimer();
     }
@@ -46,8 +42,9 @@ pub unsafe extern "C" fn trap_handler() -> ! {
     set_kernel_trap_entry();
     let proc = get_processor();
     let task = proc.current_task();
+    let trap_cx_va = task.trap_context_va();
     let cx = &mut *(task.trap_context() as *const _ as *mut TrapContext);
-    let satp = task.space().token();
+    let satp = task.token();
     drop(task);
     match scause::read().cause() {
         Trap::Exception(Exception::UserEnvCall) => {
@@ -61,18 +58,18 @@ pub unsafe extern "C" fn trap_handler() -> ! {
         }
         Trap::Exception(Exception::StoreFault) | Trap::Exception(Exception::StorePageFault) => {
             warn!("PageFault[{:#x}]", stval::read());
-            proc.exit_current(-1);
+            proc.exit_current(1);
         }
         Trap::Exception(Exception::IllegalInstruction) => {
             warn!("IllegalInstruction[{:#x}]", stval::read());
-            proc.exit_current(-1);
+            proc.exit_current(1);
         }
         trap => {
             panic!("Unsupported trap {:?}, stval = {:#x}!", trap, stval::read());
         }
     }
     proc.handle_signals();
-    unsafe { user_trap_return(satp) }
+    unsafe { user_trap_return(satp, trap_cx_va) }
 }
 
 #[repr(align(4))]
@@ -144,7 +141,9 @@ pub unsafe extern "C" fn user_trap_entry() {
 pub unsafe extern "C" fn init_app_trap_return() {
     asm! {r"
         mv a0, s0
+        mv a1, s1
         mv s0, zero
+        mv s1, zero
         j {trap_return}
         ",
         trap_return = sym user_trap_return,
@@ -153,21 +152,21 @@ pub unsafe extern "C" fn init_app_trap_return() {
 }
 
 #[inline]
-pub unsafe fn user_trap_return(satp: usize) -> ! {
+pub unsafe fn user_trap_return(satp: usize, trap_cx_va: usize) -> ! {
     set_user_trap_entry();
     let restore = (user_restore as usize - user_trap_entry as usize) + TRAMPOLINE;
     asm! {r"
         jr {restore}",
         restore = in(reg) restore,
         in("a0") satp,
-        in("a1") TRAP_CONTEXT,
+        in("a1") trap_cx_va,
         options(noreturn)
     }
 }
 
 #[naked]
 #[link_section = ".text.trampoline"]
-pub unsafe extern "C" fn user_restore(satp: usize, va_cx: usize) {
+pub unsafe extern "C" fn user_restore(satp: usize, trap_cx_va: usize) {
     asm! {r"
         .altmacro
         # 切换到用户空间

@@ -31,7 +31,7 @@ pub struct RegFile {
 }
 
 impl TrapContext {
-    pub fn init(entry: usize, usp: usize, ksp: usize, satp: usize) -> Self {
+    pub fn new(entry: usize, usp: usize, ksp: usize, satp: usize) -> Self {
         // `spp` 保存发生中断前的特权级
         let mut sstatus = sstatus::read();
         sstatus.set_spp(SPP::User);

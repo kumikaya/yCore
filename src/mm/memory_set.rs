@@ -70,7 +70,7 @@ pub struct MemorySet {
 pub static KERNEL_SPACE: Lazy<Mutex<MemorySet>> =
     Lazy::new(|| Mutex::new(MemorySet::build_kernel_space()));
 
-pub fn push_kernel_stack(va_start: VirtAddr, va_end: VirtAddr) {
+pub unsafe fn add_kernel_stack(va_start: VirtAddr, va_end: VirtAddr) {
     KERNEL_SPACE.lock().push(
         MapArea::new(va_start, va_end, MapPerm::RW, MapType::Framed),
         None,
@@ -78,7 +78,7 @@ pub fn push_kernel_stack(va_start: VirtAddr, va_end: VirtAddr) {
 }
 
 /// 移除内核栈时必须确保当前不在该栈上，即应用不能自己移除自己的内核栈
-pub fn remove_kernel_stack(end_vpn: VirtPageNum) {
+pub unsafe fn remove_kernel_stack(end_vpn: VirtPageNum) {
     KERNEL_SPACE.lock().remove_area_with_end_vpn(end_vpn);
 }
 
@@ -136,21 +136,44 @@ impl MapArea {
         }
     }
 
+    pub fn extend_end(&mut self, page_table: &mut PageTable, page_num: usize) {
+        let start = self.range.end;
+        let end = start.offset(page_num as isize);
+        self.range.end = end;
+        for vpn in start..end {
+            self.map_one(page_table, vpn);
+        }
+    }
+
+    pub fn extend_start(&mut self, page_table: &mut PageTable, page_num: usize) {
+        let start = self.range.start.offset(-(page_num as isize));
+        let end = self.range.start;
+        self.range.start = start;
+        for vpn in start..end {
+            self.map_one(page_table, vpn);
+        }
+    }
+
     pub fn map_area(&mut self, page_table: &mut PageTable) {
         for vpn in self.range.clone() {
-            let ppn = match self.map_type {
-                MapType::Identical => PhysPageNum::from(usize::from(vpn)),
-                MapType::Framed => {
-                    let frame = frame_alloc().unwrap();
-                    let ppn = frame.ppn;
-                    self.data_frames.insert(vpn, frame);
-                    ppn
-                }
-            };
-            page_table
-                .map(vpn, ppn, PTEFlags::from_bits_truncate(self.perm.bits()))
-                .unwrap();
+            self.map_one(page_table, vpn);
         }
+    }
+
+    #[inline]
+    pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
+        let ppn = match self.map_type {
+            MapType::Identical => PhysPageNum::from(usize::from(vpn)),
+            MapType::Framed => {
+                let frame = frame_alloc().unwrap();
+                let ppn = frame.ppn;
+                self.data_frames.insert(vpn, frame);
+                ppn
+            }
+        };
+        page_table
+            .map(vpn, ppn, PTEFlags::from_bits_truncate(self.perm.bits()))
+            .unwrap();
     }
 
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
@@ -249,6 +272,22 @@ impl MemorySet {
         self.areas.push(map_area);
     }
 
+    pub fn extend_area_end(&mut self, start_vpn: VirtPageNum, page_num: usize) {
+        if let Some(area) = self
+            .areas
+            .iter_mut()
+            .find(|area| area.range.start == start_vpn)
+        {
+            area.extend_end(&mut self.page_table, page_num);
+        }
+    }
+
+    pub fn extend_area_start(&mut self, end_vpn: VirtPageNum, page_num: usize) {
+        if let Some(area) = self.areas.iter_mut().find(|area| area.range.end == end_vpn) {
+            area.extend_start(&mut self.page_table, page_num);
+        }
+    }
+
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
         if let Some((idx, area)) = self
             .areas
@@ -313,29 +352,29 @@ impl MemorySet {
             }
         }
         assert_ne!(usize::from(program_vpn_end), 0, "empty program");
-        let user_stack_top = VirtAddr::from(program_vpn_end) + VirtAddr::from(GUARD_PAGE_SIZE);
-        let user_stack_bottom = user_stack_top + VirtAddr::from(USER_STACK_SIZE);
+        let user_stack_base = VirtAddr::from(program_vpn_end); // + VirtAddr::from(GUARD_PAGE_SIZE);
+        //let user_stack_bottom = user_stack_top + VirtAddr::from(USER_STACK_SIZE);
         // maping user stack
-        memory_set.push(
-            MapArea::new(
-                user_stack_top,
-                user_stack_bottom,
-                MapPerm::RWU,
-                MapType::Framed,
-            ),
-            None,
-        );
+        // memory_set.push(
+        //     MapArea::new(
+        //         user_stack_top,
+        //         user_stack_bottom,
+        //         MapPerm::RWU,
+        //         MapType::Framed,
+        //     ),
+        //     None,
+        // );
         // map TrapContext
         memory_set.push(
             MapArea::new(
                 (TRAP_CONTEXT).into(),
-                (TRAP_CONTEXT + 1).into(),
+                (TRAP_CONTEXT + PAGE_SIZE).into(),
                 MapPerm::RW,
                 MapType::Framed,
             ),
             None,
         );
-        (memory_set, entry_point, user_stack_bottom.into())
+        (memory_set, entry_point, user_stack_base.into())
     }
 
     pub fn build_kernel_space() -> Self {

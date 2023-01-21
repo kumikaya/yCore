@@ -17,7 +17,9 @@ impl<T: Schedule> SysMm for T {
     fn sys_munmap(&self, va: VirtAddr, len: usize) -> isize {
         let range = va.floor()..va.offset(len as isize).ceil();
         let task = self.current_task();
-        let user_space = task.space();
+        let user_space = unsafe {
+            task.space()
+        };
         for vpn in range {
             syscall_unwarp!(user_space.free(vpn));
         }
@@ -30,7 +32,9 @@ impl<T: Schedule> SysMm for T {
         let flags = PTEFlags::from_bits_truncate(perm.bits());
         let range = va.floor()..va.offset(len as isize).ceil();
         let task = self.current_task();
-        let user_space = task.space();
+        let user_space = unsafe {
+            task.space()
+        };
         for vpn in range {
             syscall_unwarp!(user_space.malloc(vpn, flags));
         }
